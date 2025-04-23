@@ -1,0 +1,123 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Teahouse Easy Earn AUM 計算器</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+    <style>
+        body { background: #f8f9fa; }
+        .container { max-width: 900px; margin-top: 40px; }
+        .vault-table th, .vault-table td { vertical-align: middle; }
+    </style>
+</head>
+<body>
+<div class="container">
+    <h2 class="mb-4">Teahouse Easy Earn AUM 計算器</h2>
+    <p>請輸入每個 Easy Earn Vault 的對應幣價（asset-to-usd price），然後點擊「計算」即可得到每個 Vault 的 AUM。</p>
+    <div id="loading" class="alert alert-info">正在載入 vaults 資料，請稍候...</div>
+    <form id="aumForm">
+        <table class="table table-bordered vault-table" id="vaultTable" style="display:none;">
+            <thead class="table-light">
+                <tr>
+                    <th>Vault 名稱</th>
+                    <th>Symbol</th>
+                    <th>Value</th>
+                    <th>Decimals</th>
+                    <th>輸入幣價 (asset-to-usd price)</th>
+                    <th>AUM (USD)</th>
+                </tr>
+            </thead>
+            <tbody id="vaultTbody">
+            </tbody>
+        </table>
+        <button type="submit" class="btn btn-primary" style="display:none;" id="calcBtn">計算</button>
+    </form>
+</div>
+<script>
+const VAULTS_URL = 'https://vault-content-api.teahouse.finance/vaults';
+const PERFORMANCE_URL = 'https://vault-api.teahouse.finance/vaults/performance';
+const TARGET_TIMESTAMP = 1743379200; // 2025-05-01 00:00:00 UTC
+
+async function fetchVaults() {
+    const resp = await fetch(VAULTS_URL);
+    const data = await resp.json();
+    return data.vaults.filter(vault => {
+        const name = (vault.name || '').toLowerCase();
+        const type = vault.type;
+        return type === 'V2' && name.includes('easy earn');
+    });
+}
+
+async function fetchFundValueAfterRequests(shareAddress) {
+    const url = `${PERFORMANCE_URL}/${shareAddress}/0/${TARGET_TIMESTAMP}`;
+    try {
+        const resp = await fetch(url);
+        if (!resp.ok) return [];
+        const data = await resp.json();
+        return data.performance?.fundValueAfterRequests || [];
+    } catch {
+        return [];
+    }
+}
+
+async function renderVaults() {
+    document.getElementById('loading').style.display = '';
+    const vaults = await fetchVaults();
+    const vaultTbody = document.getElementById('vaultTbody');
+    vaultTbody.innerHTML = '';
+
+    let rows = [];
+    for (const [i, vault] of vaults.entries()) {
+        const share = vault.share?.address;
+        const symbol = vault.assets?.[vault.mainAssetIndex]?.symbol || '';
+        const decimals = vault.assets?.[vault.mainAssetIndex]?.decimals || 18;
+        const name = vault.name || '';
+        const funds = await fetchFundValueAfterRequests(share);
+        if (funds.length === 0) continue;
+        for (const [j, fund] of funds.entries()) {
+            const value = fund.value;
+            const fundDecimals = fund.decimals ?? decimals;
+            rows.push(`
+                <tr>
+                    <td>${name}${funds.length > 1 ? ` (#${j+1})` : ''}</td>
+                    <td>${symbol}</td>
+                    <td><span class="value">${value}</span></td>
+                    <td><span class="decimals">${fundDecimals}</span></td>
+                    <td><input type="number" step="any" min="0" class="form-control price-input" name="price_${i}_${j}" required></td>
+                    <td class="aum-cell"></td>
+                </tr>
+            `);
+        }
+    }
+    if (rows.length === 0) {
+        document.getElementById('loading').className = 'alert alert-warning';
+        document.getElementById('loading').textContent = '找不到任何 Easy Earn vaults 或資料載入失敗。';
+        return;
+    }
+    vaultTbody.innerHTML = rows.join('');
+    document.getElementById('vaultTable').style.display = '';
+    document.getElementById('calcBtn').style.display = '';
+    document.getElementById('loading').style.display = 'none';
+}
+
+function calculateAUM(e) {
+    e.preventDefault();
+    const rows = document.querySelectorAll('#vaultTbody tr');
+    rows.forEach(row => {
+        const value = parseFloat(row.querySelector('.value').textContent);
+        const decimals = parseInt(row.querySelector('.decimals').textContent);
+        const price = parseFloat(row.querySelector('.price-input').value);
+        let aum = '';
+        if (!isNaN(value) && !isNaN(decimals) && !isNaN(price)) {
+            aum = (value * price / Math.pow(10, decimals)).toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2});
+        }
+        row.querySelector('.aum-cell').textContent = aum ? `$${aum}` : '';
+    });
+}
+
+document.getElementById('aumForm').addEventListener('submit', calculateAUM);
+window.addEventListener('DOMContentLoaded', renderVaults);
+</script>
+</body>
+</html>
