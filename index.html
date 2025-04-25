@@ -3,97 +3,47 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Teahouse Easy Earn AUM 計算器</title>
+    <title>Teahouse Vaults AUM 全覽</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
     <style>
         body { background: #f8f9fa; }
-        .container { max-width: 900px; margin-top: 40px; }
+        .container { max-width: 1100px; margin-top: 40px; }
         .vault-table th, .vault-table td { vertical-align: middle; }
+        .symbol-price-input-block { margin-bottom: 1.5em; }
     </style>
 </head>
 <body>
 <div class="container">
-    <h2 class="mb-4">Teahouse Easy Earn AUM 計算器</h2>
-    <p>請輸入每個 Easy Earn Vault 的對應幣價（asset-to-usd price），然後點擊「計算」即可得到每個 Vault 的 AUM。</p>
-    <div id="loading" class="alert alert-info">正在載入 vaults 資料，請稍候...</div>
-    <div id="symbol-price-inputs" style="margin-bottom: 1em;"></div>
-    <button id="calc-btn">計算合併 AUM</button>
-    <h3>合併後結果</h3>
-    <table border="1">
-        <thead>
-            <tr><th>Strategy</th><th>Symbol</th><th>合計主資產</th><th>幣價</th><th>合計AUM(USD)</th></tr>
-        </thead>
-        <tbody id="summary-table-body"></tbody>
-    </table>
-    <form id="aumForm">
-        <table class="table table-bordered vault-table" id="vaultTable" style="display:none;">
-            <thead class="table-light">
-                <tr>
-                    <th>Vault 名稱</th>
-                    <th>Symbol</th>
-                    <th>Value</th>
-                    <th>Decimals</th>
-                    <th>輸入幣價 (asset-to-usd price)</th>
-                    <th>AUM (USD)</th>
-                </tr>
-            </thead>
-            <tbody id="vaultTbody">
-            </tbody>
-        </table>
-        <button type="submit" class="btn btn-primary" style="display:none;" id="calcBtn">計算</button>
-    </form>
+    <h2 class="mb-4">Teahouse Vaults AUM 全覽</h2>
+    <div id="step1">
+        <p>請先輸入所有 Easy Earn/Managed Vaults 會用到的主資產幣價：</p>
+        <div id="symbol-price-inputs" class="symbol-price-input-block"></div>
+        <button id="submit-prices" class="btn btn-primary">計算所有 Vaults AUM</button>
+    </div>
+    <div id="step2" style="display:none">
+        <h4 class="mb-3">所有 Vaults 詳細表格</h4>
+        <div id="vaults-table-block"></div>
+    </div>
 </div>
 <script>
-const VAULTS_JSON = './vaults.json';
-let priceMap = {}; // symbol: price
+const VAULTS_JSON = 'vaults.json';
+let vaults = [];
+let priceMap = {};
 
 async function fetchVaultsJson() {
     const resp = await fetch(VAULTS_JSON);
     return await resp.json();
 }
 
-function renderTableRows(vaults) {
-    let rows = [];
-    vaults.forEach((vault, i) => {
-        const isEasyEarn = vault.vaultCategory && vault.vaultCategory.toLowerCase().includes('easy earn') || vault.vaultCategory && vault.vaultCategory.toLowerCase().includes('managed vaults');
-        // 處理 Easy Earn/Managed Vaults: 可能有多個鏈
-        const value = vault.mainAssetAUMReadable || '';
-        const priceInput = isEasyEarn ? `<input type="number" step="any" min="0" class="form-control price-input" name="price_${vault.symbol}" data-symbol="${vault.symbol}" required>` : 'N/A';
-        rows.push(`
-            <tr>
-                <td>${vault.Strategy || ''}</td>
-                <td>${vault.symbol || ''}</td>
-                <td><span class="value">${value}</span></td>
-                <td>${priceInput}</td>
-                <td class="aum-cell"></td>
-            </tr>
-        `);
-    });
-    return rows.join('');
-}
-
 function getUniqueSymbols(vaults) {
     // 只抓 Easy Earn/Managed Vaults
     const set = new Set();
     vaults.forEach(v => {
-        if (v.vaultCategory && (v.vaultCategory.toLowerCase().includes('easy earn') || v.vaultCategory.toLowerCase().includes('managed vaults'))) {
+        if (v.vaultCategory && (v.vaultCategory.toLowerCase() === 'easy earn' || v.vaultCategory.toLowerCase() === 'managed vaults')) {
             set.add(v.symbol);
         }
     });
     return Array.from(set);
-}
-
-function groupByStrategyAndSymbol(vaults) {
-    // { 'Strategy|symbol': [vault, ...] }
-    const map = {};
-    vaults.forEach(v => {
-        if (v.vaultCategory && (v.vaultCategory.toLowerCase().includes('easy earn') || v.vaultCategory.toLowerCase().includes('managed vaults'))) {
-            const key = `${v.Strategy || ''}|${v.symbol || ''}`;
-            if (!map[key]) map[key] = [];
-            map[key].push(v);
-        }
-    });
-    return map;
 }
 
 function parseAUMReadable(aumStr) {
@@ -108,47 +58,86 @@ function parseAUMReadable(aumStr) {
     return 0;
 }
 
-function renderSummaryTable(vaults, priceMap) {
-    const grouped = groupByStrategyAndSymbol(vaults);
+function renderSymbolPriceInputs(symbols) {
+    return symbols.map(sym => `
+        <label class="form-label me-3">${sym} 幣價：
+            <input type="number" step="any" min="0" class="form-control d-inline-block symbol-price-input" data-symbol="${sym}" style="width:120px;display:inline-block" required>
+        </label>
+    `).join(' ');
+}
+
+function renderVaultsTable(vaults, priceMap) {
     let rows = [];
-    Object.entries(grouped).forEach(([key, group]) => {
-        const [strategy, symbol] = key.split('|');
-        const totalAUM = group.reduce((sum, v) => sum + parseAUMReadable(v.mainAssetAUMReadable), 0);
-        const price = priceMap[symbol] || 0;
-        const totalUSD = totalAUM * price;
+    vaults.forEach((vault, i) => {
+        let aumValue = '';
+        let usdValue = '';
+        const isEE = vault.vaultCategory && (vault.vaultCategory.toLowerCase() === 'easy earn' || vault.vaultCategory.toLowerCase() === 'managed vaults');
+        if (vault.mainAssetAUMReadable && vault.mainAssetAUMReadable !== 'No valid fund' && vault.mainAssetAUMReadable !== '' && vault.mainAssetAUMReadable !== undefined) {
+            aumValue = vault.mainAssetAUMReadable;
+            if (isEE) {
+                const symbol = vault.symbol;
+                const price = priceMap[symbol] || 0;
+                const amt = parseAUMReadable(vault.mainAssetAUMReadable);
+                usdValue = price ? (amt * price).toLocaleString(undefined, {maximumFractionDigits: 2}) : '';
+            }
+        } else {
+            aumValue = vault.mainAssetAUMReadable || 'No valid fund';
+        }
         rows.push(`
             <tr>
-                <td>${strategy}</td>
-                <td>${symbol}</td>
-                <td>${totalAUM.toLocaleString(undefined, {maximumFractionDigits: 8})}</td>
-                <td>${price ? price : ''}</td>
-                <td>${totalUSD ? totalUSD.toLocaleString(undefined, {maximumFractionDigits: 2}) : ''}</td>
+                <td>${vault.vaultCategory}</td>
+                <td>${vault.Strategy}</td>
+                <td>${vault.symbol}</td>
+                <td>${aumValue}</td>
+                <td>${isEE ? (priceMap[vault.symbol] ?? '') : 'N/A'}</td>
+                <td>${isEE ? (usdValue ? usdValue : '') : 'N/A'}</td>
             </tr>
         `);
     });
-    return rows.join('');
+    return `
+        <table class="table table-bordered vault-table">
+            <thead class="table-light">
+                <tr>
+                    <th>Vault Category</th>
+                    <th>Strategy</th>
+                    <th>Symbol</th>
+                    <th>主資產數量</th>
+                    <th>幣價</th>
+                    <th>AUM (USD)</th>
+                </tr>
+            </thead>
+            <tbody>${rows.join('')}</tbody>
+        </table>
+    `;
 }
 
-// 畫面初始化
-async function initVaultTable() {
-    const vaults = await fetchVaultsJson();
-    document.getElementById('vault-table-body').innerHTML = renderTableRows(vaults);
-    // 動態生成 symbol 輸入區
+// 主流程
+async function init() {
+    vaults = await fetchVaultsJson();
+    // 只抓 Easy Earn/Managed Vaults 的 symbol
     const symbols = getUniqueSymbols(vaults);
-    let priceInputs = symbols.map(sym => `<label>${sym} 幣價: <input type="number" step="any" min="0" class="symbol-price" data-symbol="${sym}" required></label>`).join(' ');
-    document.getElementById('symbol-price-inputs').innerHTML = priceInputs;
-    // 綁定計算按鈕
-    document.getElementById('calc-btn').onclick = function() {
-        // 取得所有 symbol 幣價
-        document.querySelectorAll('.symbol-price').forEach(input => {
+    document.getElementById('symbol-price-inputs').innerHTML = renderSymbolPriceInputs(symbols);
+    document.getElementById('submit-prices').onclick = function() {
+        // 檢查所有必填
+        let valid = true;
+        document.querySelectorAll('.symbol-price-input').forEach(input => {
+            if (!input.value || isNaN(parseFloat(input.value))) valid = false;
+        });
+        if (!valid) {
+            alert('請輸入所有主資產的幣價！');
+            return;
+        }
+        // 讀取所有 symbol 幣價
+        document.querySelectorAll('.symbol-price-input').forEach(input => {
             priceMap[input.dataset.symbol] = parseFloat(input.value) || 0;
         });
-        // 重新渲染 summary table
-        document.getElementById('summary-table-body').innerHTML = renderSummaryTable(vaults, priceMap);
-    };
+        // 顯示 vaults 詳細表格
+        document.getElementById('step1').style.display = 'none';
+        document.getElementById('step2').style.display = '';
+        document.getElementById('vaults-table-block').innerHTML = renderVaultsTable(vaults, priceMap);
+    }
 }
-
-document.addEventListener('DOMContentLoaded', initVaultTable);
+document.addEventListener('DOMContentLoaded', init);
 </script>
 </body>
 </html>
