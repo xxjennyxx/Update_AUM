@@ -16,6 +16,15 @@
     <h2 class="mb-4">Teahouse Easy Earn AUM 計算器</h2>
     <p>請輸入每個 Easy Earn Vault 的對應幣價（asset-to-usd price），然後點擊「計算」即可得到每個 Vault 的 AUM。</p>
     <div id="loading" class="alert alert-info">正在載入 vaults 資料，請稍候...</div>
+    <div id="symbol-price-inputs" style="margin-bottom: 1em;"></div>
+    <button id="calc-btn">計算合併 AUM</button>
+    <h3>合併後結果</h3>
+    <table border="1">
+        <thead>
+            <tr><th>Strategy</th><th>Symbol</th><th>合計主資產</th><th>幣價</th><th>合計AUM(USD)</th></tr>
+        </thead>
+        <tbody id="summary-table-body"></tbody>
+    </table>
     <form id="aumForm">
         <table class="table table-bordered vault-table" id="vaultTable" style="display:none;">
             <thead class="table-light">
@@ -36,6 +45,7 @@
 </div>
 <script>
 const VAULTS_JSON = './vaults.json';
+let priceMap = {}; // symbol: price
 
 async function fetchVaultsJson() {
     const resp = await fetch(VAULTS_JSON);
@@ -45,70 +55,100 @@ async function fetchVaultsJson() {
 function renderTableRows(vaults) {
     let rows = [];
     vaults.forEach((vault, i) => {
-        const isEasyEarn = vault.vaultCategory === 'Easy Earn';
-        // fundValueAfterRequests 可能是多個 fund（通常只有一個）
-        const funds = isEasyEarn && Array.isArray(vault.fundValueAfterRequests) && vault.fundValueAfterRequests.length > 0
-            ? vault.fundValueAfterRequests
-            : [{ value: '', decimals: vault.decimals }];
-        funds.forEach((fund, j) => {
-            const value = fund.value || '';
-            const decimals = fund.decimals || vault.decimals;
-            const priceInput = isEasyEarn ? `<input type="number" step="any" min="0" class="form-control price-input" name="price_${i}_${j}" required>` : 'N/A';
-            rows.push(`
-                <tr>
-                    <td>${vault.Strategy}${funds.length > 1 ? ` (#${j+1})` : ''}</td>
-                    <td>${vault.symbol}</td>
-                    <td><span class="value">${value}</span></td>
-                    <td><span class="decimals">${decimals}</span></td>
-                    <td>${priceInput}</td>
-                    <td class="aum-cell"></td>
-                </tr>
-            `);
-        });
+        const isEasyEarn = vault.vaultCategory && vault.vaultCategory.toLowerCase().includes('easy earn') || vault.vaultCategory && vault.vaultCategory.toLowerCase().includes('managed vaults');
+        // 處理 Easy Earn/Managed Vaults: 可能有多個鏈
+        const value = vault.mainAssetAUMReadable || '';
+        const priceInput = isEasyEarn ? `<input type="number" step="any" min="0" class="form-control price-input" name="price_${vault.symbol}" data-symbol="${vault.symbol}" required>` : 'N/A';
+        rows.push(`
+            <tr>
+                <td>${vault.Strategy || ''}</td>
+                <td>${vault.symbol || ''}</td>
+                <td><span class="value">${value}</span></td>
+                <td>${priceInput}</td>
+                <td class="aum-cell"></td>
+            </tr>
+        `);
     });
     return rows.join('');
 }
 
-async function renderVaults() {
-    document.getElementById('loading').style.display = '';
-    let vaults = [];
-    try {
-        vaults = await fetchVaultsJson();
-    } catch {
-        document.getElementById('loading').className = 'alert alert-danger';
-        document.getElementById('loading').textContent = '無法載入 vaults.json，請確認檔案已上傳。';
-        return;
-    }
-    const vaultTbody = document.getElementById('vaultTbody');
-    vaultTbody.innerHTML = renderTableRows(vaults);
-    document.getElementById('vaultTable').style.display = '';
-    document.getElementById('calcBtn').style.display = '';
-    document.getElementById('loading').style.display = 'none';
-}
-
-function calculateAUM(e) {
-    e.preventDefault();
-    const rows = document.querySelectorAll('#vaultTbody tr');
-    rows.forEach(row => {
-        const value = parseFloat(row.querySelector('.value').textContent);
-        const decimals = parseInt(row.querySelector('.decimals').textContent);
-        const priceInput = row.querySelector('.price-input');
-        let aum = '';
-        if (priceInput) {
-            const price = parseFloat(priceInput.value);
-            if (!isNaN(value) && !isNaN(decimals) && !isNaN(price)) {
-                aum = (value * price / Math.pow(10, decimals)).toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2});
-            }
-        } else {
-            // 非 Easy Earn vaults
-            aum = 'N/A';
+function getUniqueSymbols(vaults) {
+    // 只抓 Easy Earn/Managed Vaults
+    const set = new Set();
+    vaults.forEach(v => {
+        if (v.vaultCategory && (v.vaultCategory.toLowerCase().includes('easy earn') || v.vaultCategory.toLowerCase().includes('managed vaults'))) {
+            set.add(v.symbol);
         }
-        row.querySelector('.aum-cell').textContent = aum ? (aum === 'N/A' ? aum : `$${aum}`) : '';
     });
+    return Array.from(set);
 }
 
-document.getElementById('aumForm').addEventListener('submit', calculateAUM);
-window.addEventListener('DOMContentLoaded', renderVaults);
+function groupByStrategyAndSymbol(vaults) {
+    // { 'Strategy|symbol': [vault, ...] }
+    const map = {};
+    vaults.forEach(v => {
+        if (v.vaultCategory && (v.vaultCategory.toLowerCase().includes('easy earn') || v.vaultCategory.toLowerCase().includes('managed vaults'))) {
+            const key = `${v.Strategy || ''}|${v.symbol || ''}`;
+            if (!map[key]) map[key] = [];
+            map[key].push(v);
+        }
+    });
+    return map;
+}
+
+function parseAUMReadable(aumStr) {
+    // "1,234.56 WBTC" -> 1234.56
+    if (!aumStr) return 0;
+    try {
+        if (typeof aumStr === 'string') {
+            const main = aumStr.split(' ')[0].replace(/,/g, '');
+            return parseFloat(main);
+        }
+    } catch {}
+    return 0;
+}
+
+function renderSummaryTable(vaults, priceMap) {
+    const grouped = groupByStrategyAndSymbol(vaults);
+    let rows = [];
+    Object.entries(grouped).forEach(([key, group]) => {
+        const [strategy, symbol] = key.split('|');
+        const totalAUM = group.reduce((sum, v) => sum + parseAUMReadable(v.mainAssetAUMReadable), 0);
+        const price = priceMap[symbol] || 0;
+        const totalUSD = totalAUM * price;
+        rows.push(`
+            <tr>
+                <td>${strategy}</td>
+                <td>${symbol}</td>
+                <td>${totalAUM.toLocaleString(undefined, {maximumFractionDigits: 8})}</td>
+                <td>${price ? price : ''}</td>
+                <td>${totalUSD ? totalUSD.toLocaleString(undefined, {maximumFractionDigits: 2}) : ''}</td>
+            </tr>
+        `);
+    });
+    return rows.join('');
+}
+
+// 畫面初始化
+async function initVaultTable() {
+    const vaults = await fetchVaultsJson();
+    document.getElementById('vault-table-body').innerHTML = renderTableRows(vaults);
+    // 動態生成 symbol 輸入區
+    const symbols = getUniqueSymbols(vaults);
+    let priceInputs = symbols.map(sym => `<label>${sym} 幣價: <input type="number" step="any" min="0" class="symbol-price" data-symbol="${sym}" required></label>`).join(' ');
+    document.getElementById('symbol-price-inputs').innerHTML = priceInputs;
+    // 綁定計算按鈕
+    document.getElementById('calc-btn').onclick = function() {
+        // 取得所有 symbol 幣價
+        document.querySelectorAll('.symbol-price').forEach(input => {
+            priceMap[input.dataset.symbol] = parseFloat(input.value) || 0;
+        });
+        // 重新渲染 summary table
+        document.getElementById('summary-table-body').innerHTML = renderSummaryTable(vaults, priceMap);
+    };
+}
+
+document.addEventListener('DOMContentLoaded', initVaultTable);
 </script>
 </body>
 </html>
