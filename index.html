@@ -15,6 +15,11 @@
 <body>
 <div class="container">
     <h2 class="mb-4">Teahouse Vaults AUM 全覽</h2>
+    <div class="mb-3" id="dateInputBlock">
+      <label for="dateInput" class="form-label">選擇日期</label>
+      <input type="date" id="dateInput" class="form-control" style="max-width:200px;display:inline-block;">
+      <div id="timestampInfo" style="margin-top:0.5em;color:#888;font-size:0.95em;display:none;"></div>
+    </div>
     <div id="step1">
         <p>請先輸入所有 Easy Earn/Managed Vaults 會用到的主資產幣價：</p>
         <div id="symbol-price-inputs" class="symbol-price-input-block"></div>
@@ -246,6 +251,38 @@ function renderVaultsTable(vaults, priceMap) {
     `;
 }
 
+// 請填入你的 Cloudflare Worker Vaults API URL
+const VAULTS_API_URL = 'https://aum.imjennyyang.workers.dev/';
+
+function getUTCTimestampsForDate(dateStr) {
+  // dateStr: yyyy-mm-dd
+  if (!dateStr) return { start: '', end: '' };
+  const d = new Date(dateStr + 'T00:00:00Z');
+  const start = Math.floor(d.getTime() / 1000);
+  const end = start + 86399; // 23:59:59 UTC
+  return { start, end };
+}
+
+function fetchVaultsWithTimestamp(ts) {
+  const url = `${VAULTS_API_URL}?timestamp=${ts}`;
+  return fetch(url).then(res => res.json());
+}
+
+document.getElementById('dateInput').addEventListener('input', function() {
+  // 隱藏 timestampInfo
+  document.getElementById('timestampInfo').style.display = 'none';
+  // 自動查詢（用 23:59:59 timestamp）
+  const val = this.value;
+  if (!val) return;
+  const { end } = getUTCTimestampsForDate(val);
+  fetchVaultsWithTimestamp(end).then(data => {
+    renderVaultsTable(data, {});
+    document.getElementById('step2').style.display = '';
+    // 隱藏日期選擇區塊
+    document.getElementById('dateInputBlock').style.display = 'none';
+  });
+});
+
 // 讓 WBTC 價格變動時預設填入 BTCB，但 BTCB 可手動修改
 function setupWBTCBTCBLink() {
     const wbtcInput = document.getElementById('price-wbtc');
@@ -291,6 +328,8 @@ async function init() {
         document.getElementById('step1').style.display = 'none';
         document.getElementById('step2').style.display = '';
         document.getElementById('vaults-table-block').innerHTML = renderVaultsTable(vaults, priceMap);
+        // 隱藏日期選擇區塊
+        document.getElementById('dateInputBlock').style.display = 'none';
     }
 }
 document.addEventListener('DOMContentLoaded', init);
