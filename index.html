@@ -21,7 +21,6 @@
         <button id="submit-prices" class="btn btn-primary">計算所有 Vaults AUM</button>
     </div>
     <div id="step2" style="display:none">
-        <h4 class="mb-3">所有 Vaults 詳細表格</h4>
         <div id="vaults-table-block"></div>
     </div>
 </div>
@@ -75,20 +74,101 @@ function renderSymbolPriceInputs(symbols) {
     }).join(' ');
 }
 
+function normalizeUnit(unit) {
+    // 將特殊單位轉換為網站顯示需求
+    if (!unit) return '';
+    if (unit === 'USDC.e' || unit === 'axlUSDC') return 'USDC';
+    if (unit === 'WETH') return 'ETH';
+    if (unit === 'WBTC') return 'BTC';
+    return unit;
+}
+
+function formatNumberShort(num) {
+    // 將數字轉為 K/M 簡寫
+    const n = Math.abs(num);
+    if (n >= 1_000_000) return (num / 1_000_000).toFixed(1).replace(/\.0$/, '') + 'M';
+    if (n >= 1_000) return (num / 1_000).toFixed(n >= 10_000 ? 0 : 2).replace(/\.0+$/, '') + 'K';
+    return num.toLocaleString();
+}
+
+function formatAUMWithUnit(aumStr) {
+    // 處理 AUM 欄位的單位顯示規則，並加上 K/M 簡寫
+    if (!aumStr) return '';
+    const match = aumStr.match(/^([\d,\.]+)\s*([A-Za-z.]+)$/);
+    if (match) {
+        let num = match[1];
+        const unit = normalizeUnit(match[2]);
+        const raw = parseFloat(num.replace(/,/g, ''));
+        // 處理 0.00 顯示 <0.01
+        if (raw === 0) {
+            return `<0.01 ${unit}`;
+        }
+        // K/M 簡寫
+        return `${formatNumberShort(raw)} ${unit}`;
+    }
+    return aumStr;
+}
+
+function formatAUMUSD(aumStr) {
+    // 處理 USD 結果顯示規則，e.g. "0.00 USD" → "<0.01 USD"，加上 K/M 簡寫
+    if (!aumStr) return '';
+    const match = aumStr.match(/^([\d,\.]+)\s*USD$/);
+    if (match) {
+        let num = match[1];
+        const raw = parseFloat(num.replace(/,/g, ''));
+        if (raw === 0) {
+            return '<0.01 USD';
+        }
+        return `${formatNumberShort(raw)} USD`;
+    }
+    return aumStr;
+}
+
 function renderVaultsTable(vaults, priceMap) {
+    // 依照 vault 類型排序：LP Vaults > Portfolio > Managed Vaults > Easy Earn
+    const categoryOrder = {
+        'lp vaults': 0,
+        'portfolio': 1,
+        'managed vaults': 2,
+        'easy earn': 3
+    };
+    // 過濾掉 Easy Earn 單一鏈的資料，只保留非 Easy Earn 或 Easy Earn Total（AUM_SUMMARY）
+    const easyEarnChains = new Set();
+    const easyEarnSymbols = new Set();
+    vaults.forEach(v => {
+        if (v.vaultCategory && v.vaultCategory.toLowerCase() === 'easy earn') {
+            if (v.chain) easyEarnChains.add(v.chain);
+            if (v.symbol) easyEarnSymbols.add(v.symbol);
+        }
+    });
+    // 只保留非 Easy Earn vault 或 Easy Earn Total (AUM_SUMMARY)
+    const filteredVaults = vaults.filter(v => v.vaultCategory && v.vaultCategory.toLowerCase() !== 'easy earn');
+    // 排序
+    const sortedVaults = [...filteredVaults].sort((a, b) => {
+        const ca = (a.vaultCategory || '').toLowerCase();
+        const cb = (b.vaultCategory || '').toLowerCase();
+        const oa = categoryOrder.hasOwnProperty(ca) ? categoryOrder[ca] : 99;
+        const ob = categoryOrder.hasOwnProperty(cb) ? categoryOrder[cb] : 99;
+        if (oa !== ob) return oa - ob;
+        // 次排序：symbol
+        return (a.symbol || '').localeCompare(b.symbol || '');
+    });
     let rows = [];
-    vaults.forEach((vault, i) => {
-        // 僅顯示 isActive 為 true 的 vault
+    sortedVaults.forEach((vault, i) => {
+        // 僅顯示 isActive 為 true 的 vault（AUM_SUMMARY 沒有 isActive 欄位）
         if (vault.isActive === false) return;
         let aumValue = '';
         let usdValue = '';
-        const isEE = vault.vaultCategory && (vault.vaultCategory.toLowerCase() === 'easy earn' || vault.vaultCategory.toLowerCase() === 'managed vaults');
-        const isSummary = vault.vaultCategory && vault.vaultCategory === 'AUM_SUMMARY';
+        const isEasyEarn = vault.vaultCategory && vault.vaultCategory.toLowerCase() === 'easy earn';
+        const isSummary = vault.vaultCategory === 'AUM_SUMMARY' || vault.vaultCategory === 'Easy Earn Total';
         const isLP = vault.vaultCategory && vault.vaultCategory.toLowerCase() === 'lp vaults';
         const isPortfolio = vault.vaultCategory && vault.vaultCategory.toLowerCase() === 'portfolio';
+        const isManaged = vault.vaultCategory && vault.vaultCategory.toLowerCase() === 'managed vaults';
+        let vaultCategoryDisplay = vault.vaultCategory;
+        if (isSummary) vaultCategoryDisplay = 'Easy Earn Total';
         if (vault.mainAssetAUMReadable && vault.mainAssetAUMReadable !== 'No valid fund' && vault.mainAssetAUMReadable !== '' && vault.mainAssetAUMReadable !== undefined) {
             if (isSummary) {
-                // AUM_SUMMARY: 主資產數量欄為空，AUM 欄顯示計算結果並加上 USD 單位
+                // Easy Earn Total: 主資產數量欄為空，AUM 欄顯示計算結果並加上 USD 單位
                 aumValue = '';
                 const symbol = vault.symbol;
                 const price = priceMap[symbol] || 0;
@@ -97,29 +177,54 @@ function renderVaultsTable(vaults, priceMap) {
                     const main = vault.mainAssetAUMReadable.split(' ')[0].replace(/,/g, '');
                     amt = parseFloat(main);
                 }
-                usdValue = price ? (amt * price).toLocaleString(undefined, {maximumFractionDigits: 2}) + ' USD' : '';
-            } else {
-                aumValue = vault.mainAssetAUMReadable;
-                if (isEE) {
-                    const symbol = vault.symbol;
-                    const price = priceMap[symbol] || 0;
-                    const amt = parseAUMReadable(vault.mainAssetAUMReadable);
-                    usdValue = price ? (amt * price).toLocaleString(undefined, {maximumFractionDigits: 2}) + ' USD' : '';
-                } else if (isLP || isPortfolio) {
-                    usdValue = vault.mainAssetAUMReadable;
+                let usd = price ? (amt * price).toLocaleString(undefined, {maximumFractionDigits: 2}) + ' USD' : '';
+                usdValue = formatAUMUSD(usd);
+            } else if (isEasyEarn) {
+                /*
+                aumValue = formatAUMWithUnit(vault.mainAssetAUMReadable);
+                const symbol = vault.symbol;
+                const price = priceMap[symbol] || 0;
+                const amt = parseAUMReadable(vault.mainAssetAUMReadable);
+                let usd = price ? (amt * price).toLocaleString(undefined, {maximumFractionDigits: 2}) + ' USD' : '';
+                usdValue = formatAUMUSD(usd);
+                */
+            } else if (isManaged) {
+                aumValue = formatAUMWithUnit(vault.mainAssetAUMReadable);
+                let amt = parseAUMReadable(vault.mainAssetAUMReadable);
+                let unit = '';
+                if (typeof vault.mainAssetAUMReadable === 'string') {
+                    const match = vault.mainAssetAUMReadable.match(/^([\d,\.]+)\s*([A-Za-z.]+)$/);
+                    if (match) unit = normalizeUnit(match[2]);
                 }
+                usdValue = amt === 0 ? '<0.01 ' + unit : (amt >= 1_000_000 ? (amt / 1_000_000).toFixed(1).replace(/\.0$/, '') + 'M ' + unit : amt >= 1_000 ? (amt / 1_000).toFixed(2).replace(/\.0+$/, '') + 'K ' + unit : amt.toLocaleString(undefined, {maximumFractionDigits: 2}) + ' ' + unit);
+            } else if (isLP || isPortfolio) {
+                aumValue = formatAUMWithUnit(vault.mainAssetAUMReadable);
+                usdValue = formatAUMWithUnit(vault.mainAssetAUMReadable);
             }
         } else {
             aumValue = vault.mainAssetAUMReadable || 'No valid fund';
         }
+        // 新增 Easy Earn Total 的 chain 說明（優先用 chains 欄位，否則 fallback 舊寫法）
+        let strategyExtra = '';
+        let chainDisplay = vault.chain || '';
+        if (isSummary) {
+            let chains = vault.chains || [];
+            if (chains.length === 0 && easyEarnChains.size > 0) {
+                chains = Array.from(easyEarnChains);
+            }
+            if (chains.length > 0) {
+                chainDisplay = chains.map(c => c.slice(1)).join(', ');
+            }
+        }
         rows.push(`
             <tr>
-                <td>${vault.vaultCategory}</td>
-                <td>${vault.Strategy}</td>
+                <td>${vaultCategoryDisplay}</td>
+                <td>${vault.Strategy}${strategyExtra}</td>
+                <td>${chainDisplay}</td>
                 <td>${vault.protocol}</td>
                 <td>${vault.symbol}</td>
-                <td>${aumValue}</td>
-                <td>${isSummary ? usdValue : (isLP || isPortfolio ? usdValue : (isEE ? (usdValue ? usdValue : '') : 'N/A'))}</td>
+                <td>${formatAUMWithUnit(aumValue)}</td>
+                <td>${isSummary ? usdValue : (isLP || isPortfolio ? usdValue : (isManaged ? usdValue : 'N/A'))}</td>
             </tr>
         `);
     });
@@ -129,6 +234,7 @@ function renderVaultsTable(vaults, priceMap) {
                 <tr>
                     <th>Vault Category</th>
                     <th>Strategy</th>
+                    <th>Chain</th>
                     <th>Protocol</th>
                     <th>Symbol</th>
                     <th>主資產數量</th>
