@@ -1235,7 +1235,7 @@
     "mainAssetAUMReadable": "264.34 USDC"
   },
   {
-    "vaultCategory": "Managed Vaults",
+    "vaultCategory": "Easy Earn",
     "Strategy": "RevertX",
     "chain": "sei",
     "chainId": "1329",
@@ -1482,7 +1482,7 @@
     "mainAssetAUMReadable": ""
   },
   {
-    "vaultCategory": "AUM_SUMMARY",
+    "vaultCategory": "Easy Earn Total",
     "Strategy": "Easy Earn - WBTC",
     "chain": "",
     "chainId": "",
@@ -1492,10 +1492,14 @@
     "symbol": "WBTC",
     "decimals": "",
     "isActive": "",
-    "mainAssetAUMReadable": "13.15550308 WBTC (合併)"
+    "mainAssetAUMReadable": "13.15550308 WBTC (合併)",
+    "chains": [
+      "arbitrum",
+      "optimism"
+    ]
   },
   {
-    "vaultCategory": "AUM_SUMMARY",
+    "vaultCategory": "Easy Earn Total",
     "Strategy": "Easy-Earn - USDC",
     "chain": "",
     "chainId": "",
@@ -1505,10 +1509,15 @@
     "symbol": "USDC",
     "decimals": "",
     "isActive": "",
-    "mainAssetAUMReadable": "54,770.52555800 USDC (合併)"
+    "mainAssetAUMReadable": "54,770.52555800 USDC (合併)",
+    "chains": [
+      "arbitrum",
+      "ethereum",
+      "polygon"
+    ]
   },
   {
-    "vaultCategory": "AUM_SUMMARY",
+    "vaultCategory": "Easy Earn Total",
     "Strategy": "Easy-Earn - USDT",
     "chain": "",
     "chainId": "",
@@ -1518,23 +1527,13 @@
     "symbol": "USDT",
     "decimals": "",
     "isActive": "",
-    "mainAssetAUMReadable": "3,228.04462400 USDT (合併)"
+    "mainAssetAUMReadable": "3,228.04462400 USDT (合併)",
+    "chains": [
+      "arbitrum"
+    ]
   },
   {
-    "vaultCategory": "AUM_SUMMARY",
-    "Strategy": "ETH Amplifier Strategy",
-    "chain": "",
-    "chainId": "",
-    "protocol": "",
-    "mainAssetIndex": "",
-    "share_address": "",
-    "symbol": "ETH",
-    "decimals": "",
-    "isActive": "",
-    "mainAssetAUMReadable": "57.74284916 ETH (合併)"
-  },
-  {
-    "vaultCategory": "AUM_SUMMARY",
+    "vaultCategory": "Easy Earn Total",
     "Strategy": "Easy Earn - ETH",
     "chain": "",
     "chainId": "",
@@ -1544,36 +1543,13 @@
     "symbol": "ETH",
     "decimals": "",
     "isActive": "",
-    "mainAssetAUMReadable": "50.02965471 ETH (合併)"
+    "mainAssetAUMReadable": "50.02965471 ETH (合併)",
+    "chains": [
+      "arbitrum"
+    ]
   },
   {
-    "vaultCategory": "AUM_SUMMARY",
-    "Strategy": "Beta+ Momentum Strategy",
-    "chain": "",
-    "chainId": "",
-    "protocol": "",
-    "mainAssetIndex": "",
-    "share_address": "",
-    "symbol": "USDC.e",
-    "decimals": "",
-    "isActive": "",
-    "mainAssetAUMReadable": "6,646.97425700 USDC.e (合併)"
-  },
-  {
-    "vaultCategory": "AUM_SUMMARY",
-    "Strategy": "BTC Looping Strategy",
-    "chain": "",
-    "chainId": "",
-    "protocol": "",
-    "mainAssetIndex": "",
-    "share_address": "",
-    "symbol": "BTCB",
-    "decimals": "",
-    "isActive": "",
-    "mainAssetAUMReadable": "0.15403689 BTCB (合併)"
-  },
-  {
-    "vaultCategory": "AUM_SUMMARY",
+    "vaultCategory": "Easy Earn Total",
     "Strategy": "Easy Earn - ETH (ETH Amplifier Strategy)",
     "chain": "",
     "chainId": "",
@@ -1583,36 +1559,13 @@
     "symbol": "ETH",
     "decimals": "",
     "isActive": "",
-    "mainAssetAUMReadable": "362.78794312 ETH (合併)"
+    "mainAssetAUMReadable": "362.78794312 ETH (合併)",
+    "chains": [
+      "ethereum"
+    ]
   },
   {
-    "vaultCategory": "AUM_SUMMARY",
-    "Strategy": "Pseudo Market-Neutral Liquidity Provision",
-    "chain": "",
-    "chainId": "",
-    "protocol": "",
-    "mainAssetIndex": "",
-    "share_address": "",
-    "symbol": "USDC",
-    "decimals": "",
-    "isActive": "",
-    "mainAssetAUMReadable": "0.00000000 USDC (合併)"
-  },
-  {
-    "vaultCategory": "AUM_SUMMARY",
-    "Strategy": "Concentrated Liquidity Provision",
-    "chain": "",
-    "chainId": "",
-    "protocol": "",
-    "mainAssetIndex": "",
-    "share_address": "",
-    "symbol": "USDC",
-    "decimals": "",
-    "isActive": "",
-    "mainAssetAUMReadable": "0.00000000 USDC (合併)"
-  },
-  {
-    "vaultCategory": "AUM_SUMMARY",
+    "vaultCategory": "Easy Earn Total",
     "Strategy": "WBTC Easy Earn (Ethereum)",
     "chain": "",
     "chainId": "",
@@ -1622,75 +1575,13 @@
     "symbol": "WBTC",
     "decimals": "",
     "isActive": "",
-    "mainAssetAUMReadable": "0.00000000 WBTC (合併)"
+    "mainAssetAUMReadable": "0.00000000 WBTC (合併)",
+    "chains": [
+      "ethereum"
+    ]
   },
   {
-    "vaultCategory": "AUM_SUMMARY",
-    "Strategy": "Teahouse ETH Vault",
-    "chain": "",
-    "chainId": "",
-    "protocol": "",
-    "mainAssetIndex": "",
-    "share_address": "",
-    "symbol": "ETH",
-    "decimals": "",
-    "isActive": "",
-    "mainAssetAUMReadable": "15.46491565 ETH (合併)"
-  },
-  {
-    "vaultCategory": "AUM_SUMMARY",
-    "Strategy": "Stablecoin Portfolio Strategy",
-    "chain": "",
-    "chainId": "",
-    "protocol": "",
-    "mainAssetIndex": "",
-    "share_address": "",
-    "symbol": "USDC",
-    "decimals": "",
-    "isActive": "",
-    "mainAssetAUMReadable": "3,882.30012100 USDC (合併)"
-  },
-  {
-    "vaultCategory": "AUM_SUMMARY",
-    "Strategy": "Pseudo Market-Neutral Liquidity Provision (legacy)",
-    "chain": "",
-    "chainId": "",
-    "protocol": "",
-    "mainAssetIndex": "",
-    "share_address": "",
-    "symbol": "USDC",
-    "decimals": "",
-    "isActive": "",
-    "mainAssetAUMReadable": "0.00000000 USDC (合併)"
-  },
-  {
-    "vaultCategory": "AUM_SUMMARY",
-    "Strategy": "ETH Options Trading",
-    "chain": "",
-    "chainId": "",
-    "protocol": "",
-    "mainAssetIndex": "",
-    "share_address": "",
-    "symbol": "USDC.e",
-    "decimals": "",
-    "isActive": "",
-    "mainAssetAUMReadable": "2,966.05124100 USDC.e (合併)"
-  },
-  {
-    "vaultCategory": "AUM_SUMMARY",
-    "Strategy": "Perpetual Protocol LP Strategy",
-    "chain": "",
-    "chainId": "",
-    "protocol": "",
-    "mainAssetIndex": "",
-    "share_address": "",
-    "symbol": "USDC.e",
-    "decimals": "",
-    "isActive": "",
-    "mainAssetAUMReadable": "0.00000000 USDC.e (合併)"
-  },
-  {
-    "vaultCategory": "AUM_SUMMARY",
+    "vaultCategory": "Easy Earn Total",
     "Strategy": "RevertX",
     "chain": "",
     "chainId": "",
@@ -1700,19 +1591,9 @@
     "symbol": "USDC",
     "decimals": "",
     "isActive": "",
-    "mainAssetAUMReadable": "1,000.00000000 USDC (合併)"
-  },
-  {
-    "vaultCategory": "AUM_SUMMARY",
-    "Strategy": "Delta-Neutral",
-    "chain": "",
-    "chainId": "",
-    "protocol": "",
-    "mainAssetIndex": "",
-    "share_address": "",
-    "symbol": "USDC",
-    "decimals": "",
-    "isActive": "",
-    "mainAssetAUMReadable": "1,000.00000000 USDC (合併)"
+    "mainAssetAUMReadable": "1,000.00000000 USDC (合併)",
+    "chains": [
+      "sei"
+    ]
   }
 ]
