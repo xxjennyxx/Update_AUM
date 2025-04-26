@@ -26,6 +26,7 @@
         <button id="submit-prices" class="btn btn-primary">計算所有 Vaults AUM</button>
     </div>
     <div id="step2" style="display:none">
+        <button id="backBtn" class="btn btn-outline-secondary mb-3">返回</button>
         <div id="vaults-table-block"></div>
     </div>
 </div>
@@ -33,6 +34,9 @@
 const VAULTS_JSON = 'vaults.json';
 let vaults = [];
 let priceMap = {};
+let selectedTimestamp = null;
+let selectedDate = null;
+let lastVaultsData = null;
 
 async function fetchVaultsJson() {
     const resp = await fetch(VAULTS_JSON);
@@ -269,19 +273,47 @@ function fetchVaultsWithTimestamp(ts) {
 }
 
 document.getElementById('dateInput').addEventListener('input', function() {
-  // 隱藏 timestampInfo
   document.getElementById('timestampInfo').style.display = 'none';
-  // 自動查詢（用 23:59:59 timestamp）
   const val = this.value;
   if (!val) return;
+  selectedDate = val;
   const { end } = getUTCTimestampsForDate(val);
-  fetchVaultsWithTimestamp(end).then(data => {
-    renderVaultsTable(data, {});
+  selectedTimestamp = end;
+});
+
+document.getElementById('submit-prices').onclick = function() {
+  // 檢查所有必填
+  let valid = true;
+  document.querySelectorAll('.symbol-price-input').forEach(input => {
+    if (!input.value || isNaN(parseFloat(input.value))) valid = false;
+  });
+  if (!valid) {
+    alert('請輸入所有主資產的幣價！');
+    return;
+  }
+  // 讀取所有 symbol 幣價
+  priceMap = {};
+  document.querySelectorAll('.symbol-price-input').forEach(input => {
+    priceMap[input.dataset.symbol] = parseFloat(input.value) || 0;
+  });
+  if (!selectedTimestamp) {
+    alert('請先選擇日期');
+    return;
+  }
+  fetchVaultsWithTimestamp(selectedTimestamp).then(data => {
+    lastVaultsData = data;
+    document.getElementById('step1').style.display = 'none';
     document.getElementById('step2').style.display = '';
-    // 隱藏日期選擇區塊
+    document.getElementById('vaults-table-block').innerHTML = renderVaultsTable(data, priceMap);
     document.getElementById('dateInputBlock').style.display = 'none';
   });
-});
+};
+
+document.getElementById('backBtn').onclick = function() {
+  document.getElementById('step2').style.display = 'none';
+  document.getElementById('step1').style.display = '';
+  document.getElementById('dateInputBlock').style.display = '';
+};
 
 // 讓 WBTC 價格變動時預設填入 BTCB，但 BTCB 可手動修改
 function setupWBTCBTCBLink() {
@@ -310,27 +342,6 @@ async function init() {
     const symbols = getUniqueSymbols(vaults);
     document.getElementById('symbol-price-inputs').innerHTML = renderSymbolPriceInputs(symbols);
     setupWBTCBTCBLink();
-    document.getElementById('submit-prices').onclick = function() {
-        // 檢查所有必填
-        let valid = true;
-        document.querySelectorAll('.symbol-price-input').forEach(input => {
-            if (!input.value || isNaN(parseFloat(input.value))) valid = false;
-        });
-        if (!valid) {
-            alert('請輸入所有主資產的幣價！');
-            return;
-        }
-        // 讀取所有 symbol 幣價
-        document.querySelectorAll('.symbol-price-input').forEach(input => {
-            priceMap[input.dataset.symbol] = parseFloat(input.value) || 0;
-        });
-        // 顯示 vaults 詳細表格
-        document.getElementById('step1').style.display = 'none';
-        document.getElementById('step2').style.display = '';
-        document.getElementById('vaults-table-block').innerHTML = renderVaultsTable(vaults, priceMap);
-        // 隱藏日期選擇區塊
-        document.getElementById('dateInputBlock').style.display = 'none';
-    }
 }
 document.addEventListener('DOMContentLoaded', init);
 </script>
