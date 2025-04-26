@@ -59,26 +59,55 @@ function parseAUMReadable(aumStr) {
 }
 
 function renderSymbolPriceInputs(symbols) {
-    return symbols.map(sym => `
-        <label class="form-label me-3">${sym} 幣價：
-            <input type="number" step="any" min="0" class="form-control d-inline-block symbol-price-input" data-symbol="${sym}" style="width:120px;display:inline-block" required>
-        </label>
-    `).join(' ');
+    // 處理 WBTC 與 BTCB 綁定輸入
+    return symbols.map(sym => {
+        let defaultVal = '';
+        if (sym === 'USDC' || sym === 'USDT' || sym === 'USDC.e') defaultVal = '1';
+        // 標記 WBTC 與 BTCB 欄位
+        let extraAttr = '';
+        if (sym === 'WBTC') extraAttr = 'id="price-wbtc"';
+        if (sym === 'BTCB') extraAttr = 'id="price-btcb"';
+        return `
+            <label class="form-label me-3">${sym} 幣價：
+                <input type="number" step="any" min="0" class="form-control d-inline-block symbol-price-input" data-symbol="${sym}" style="width:120px;display:inline-block" required value="${defaultVal}" ${extraAttr}>
+            </label>
+        `;
+    }).join(' ');
 }
 
 function renderVaultsTable(vaults, priceMap) {
     let rows = [];
     vaults.forEach((vault, i) => {
+        // 僅顯示 isActive 為 true 的 vault
+        if (vault.isActive === false) return;
         let aumValue = '';
         let usdValue = '';
         const isEE = vault.vaultCategory && (vault.vaultCategory.toLowerCase() === 'easy earn' || vault.vaultCategory.toLowerCase() === 'managed vaults');
+        const isSummary = vault.vaultCategory && vault.vaultCategory === 'AUM_SUMMARY';
+        const isLP = vault.vaultCategory && vault.vaultCategory.toLowerCase() === 'lp vaults';
+        const isPortfolio = vault.vaultCategory && vault.vaultCategory.toLowerCase() === 'portfolio';
         if (vault.mainAssetAUMReadable && vault.mainAssetAUMReadable !== 'No valid fund' && vault.mainAssetAUMReadable !== '' && vault.mainAssetAUMReadable !== undefined) {
-            aumValue = vault.mainAssetAUMReadable;
-            if (isEE) {
+            if (isSummary) {
+                // AUM_SUMMARY: 主資產數量欄為空，AUM 欄顯示計算結果並加上 USD 單位
+                aumValue = '';
                 const symbol = vault.symbol;
                 const price = priceMap[symbol] || 0;
-                const amt = parseAUMReadable(vault.mainAssetAUMReadable);
-                usdValue = price ? (amt * price).toLocaleString(undefined, {maximumFractionDigits: 2}) : '';
+                let amt = 0;
+                if (typeof vault.mainAssetAUMReadable === 'string') {
+                    const main = vault.mainAssetAUMReadable.split(' ')[0].replace(/,/g, '');
+                    amt = parseFloat(main);
+                }
+                usdValue = price ? (amt * price).toLocaleString(undefined, {maximumFractionDigits: 2}) + ' USD' : '';
+            } else {
+                aumValue = vault.mainAssetAUMReadable;
+                if (isEE) {
+                    const symbol = vault.symbol;
+                    const price = priceMap[symbol] || 0;
+                    const amt = parseAUMReadable(vault.mainAssetAUMReadable);
+                    usdValue = price ? (amt * price).toLocaleString(undefined, {maximumFractionDigits: 2}) + ' USD' : '';
+                } else if (isLP || isPortfolio) {
+                    usdValue = vault.mainAssetAUMReadable;
+                }
             }
         } else {
             aumValue = vault.mainAssetAUMReadable || 'No valid fund';
@@ -87,10 +116,10 @@ function renderVaultsTable(vaults, priceMap) {
             <tr>
                 <td>${vault.vaultCategory}</td>
                 <td>${vault.Strategy}</td>
+                <td>${vault.protocol}</td>
                 <td>${vault.symbol}</td>
                 <td>${aumValue}</td>
-                <td>${isEE ? (priceMap[vault.symbol] ?? '') : 'N/A'}</td>
-                <td>${isEE ? (usdValue ? usdValue : '') : 'N/A'}</td>
+                <td>${isSummary ? usdValue : (isLP || isPortfolio ? usdValue : (isEE ? (usdValue ? usdValue : '') : 'N/A'))}</td>
             </tr>
         `);
     });
@@ -100,15 +129,35 @@ function renderVaultsTable(vaults, priceMap) {
                 <tr>
                     <th>Vault Category</th>
                     <th>Strategy</th>
+                    <th>Protocol</th>
                     <th>Symbol</th>
                     <th>主資產數量</th>
-                    <th>幣價</th>
-                    <th>AUM (USD)</th>
+                    <th>AUM</th>
                 </tr>
             </thead>
             <tbody>${rows.join('')}</tbody>
         </table>
     `;
+}
+
+// 讓 WBTC 價格變動時預設填入 BTCB，但 BTCB 可手動修改
+function setupWBTCBTCBLink() {
+    const wbtcInput = document.getElementById('price-wbtc');
+    const btcbInput = document.getElementById('price-btcb');
+    if (wbtcInput && btcbInput) {
+        // 只在 WBTC 輸入時自動帶入 BTCB
+        wbtcInput.addEventListener('input', () => {
+            // 僅當 BTCB 尚未被手動修改過或與 WBTC 相同時才同步
+            if (!btcbInput._userModified || btcbInput.value === '' || btcbInput.value === wbtcInput.oldValue || btcbInput.value === wbtcInput.oldValue + '') {
+                btcbInput.value = wbtcInput.value;
+            }
+            wbtcInput.oldValue = wbtcInput.value;
+        });
+        // 使用者手動修改 BTCB 時，標記 _userModified
+        btcbInput.addEventListener('input', () => {
+            btcbInput._userModified = true;
+        });
+    }
 }
 
 // 主流程
@@ -117,6 +166,7 @@ async function init() {
     // 只抓 Easy Earn/Managed Vaults 的 symbol
     const symbols = getUniqueSymbols(vaults);
     document.getElementById('symbol-price-inputs').innerHTML = renderSymbolPriceInputs(symbols);
+    setupWBTCBTCBLink();
     document.getElementById('submit-prices').onclick = function() {
         // 檢查所有必填
         let valid = true;
