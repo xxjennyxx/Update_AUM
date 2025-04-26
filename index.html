@@ -20,42 +20,129 @@
       <input type="date" id="dateInput" class="form-control" style="max-width:200px;display:inline-block;">
       <div id="timestampInfo" style="margin-top:0.5em;color:#888;font-size:0.95em;display:none;"></div>
     </div>
-    <div id="step1">
+    <div id="step1" style="display:none">
         <p>請先輸入所有 Easy Earn/Managed Vaults 會用到的主資產幣價：</p>
         <div id="symbol-price-inputs" class="symbol-price-input-block"></div>
         <button id="submit-prices" class="btn btn-primary">計算所有 Vaults AUM</button>
     </div>
     <div id="step2" style="display:none">
         <button id="backBtn" class="btn btn-outline-secondary mb-3">返回</button>
+        <button id="download-excel" class="btn btn-success mb-3">下載 Excel</button>
         <div id="vaults-table-block"></div>
     </div>
 </div>
 <script>
-const VAULTS_JSON = 'vaults.json';
-let vaults = [];
+// const VAULTS_API_URL = 'https://aum.imjennyyang.workers.dev/';
+const VAULTS_API_URL = 'https://aum.imjennyyang.workers.dev/';
 let priceMap = {};
 let selectedTimestamp = null;
 let selectedDate = null;
 let lastVaultsData = null;
+let allSymbols = [];
 
-async function fetchVaultsJson() {
-    const resp = await fetch(VAULTS_JSON);
-    return await resp.json();
+function getUTCTimestampsForDate(dateStr) {
+  // dateStr: yyyy-mm-dd
+  if (!dateStr) return { start: '', end: '' };
+  // 強制視為 UTC 00:00:00
+  const d = new Date(dateStr + 'T00:00:00Z');
+  const start = Math.floor(d.getTime() / 1000); // UTC 00:00:00
+  const end = start + 86399; // UTC 23:59:59
+  return { start, end };
 }
 
-function getUniqueSymbols(vaults) {
-    // 只抓 Easy Earn/Managed Vaults
-    const set = new Set();
-    vaults.forEach(v => {
-        if (v.vaultCategory && (v.vaultCategory.toLowerCase() === 'easy earn' || v.vaultCategory.toLowerCase() === 'managed vaults')) {
-            set.add(v.symbol);
-        }
-    });
-    return Array.from(set);
+function fetchVaultsWithTimestamp(ts) {
+  const url = `${VAULTS_API_URL}?timestamp=${ts}`;
+  return fetch(url).then(res => res.json());
+}
+
+// 分批請求，全部合併顯示
+async function fetchAllVaultsWithTimestamp(ts, pageSize = 10, maxPages = 100) {
+  let allVaults = [];
+  let page = 1;
+  let hasMore = true;
+  while (hasMore && page <= maxPages) {
+    const url = `${VAULTS_API_URL}?timestamp=${ts}&page=${page}&page_size=${pageSize}`;
+    const data = await fetch(url).then(res => res.json());
+    if (!Array.isArray(data) || data.length === 0) break;
+    allVaults = allVaults.concat(data);
+    if (data.length < pageSize) {
+      hasMore = false;
+    } else {
+      page++;
+      await new Promise(r => setTimeout(r, 200));
+    }
+  }
+  return allVaults;
+}
+
+window.addEventListener('DOMContentLoaded', function() {
+  document.getElementById('step1').style.display = 'none';
+  document.getElementById('step2').style.display = 'none';
+  document.getElementById('dateInputBlock').style.display = '';
+});
+
+document.getElementById('dateInput').addEventListener('input', async function() {
+  document.getElementById('timestampInfo').style.display = 'none';
+  const val = this.value;
+  if (!val) return;
+  selectedDate = val;
+  const { start } = getUTCTimestampsForDate(val);
+  selectedTimestamp = start;
+  // 分批拿全部 vaults，暫存起來
+  lastVaultsData = await fetchAllVaultsWithTimestamp(selectedTimestamp, 10);
+  allSymbols = Array.from(new Set(
+    (lastVaultsData || []).filter(v => v.vaultCategory && (v.vaultCategory === 'Easy Earn' || v.vaultCategory === 'Managed Vaults')).map(v => v.symbol)
+  ));
+  document.getElementById('symbol-price-inputs').innerHTML = renderSymbolPriceInputs(allSymbols);
+  setupWBTCBTCBLink();
+  // 直接顯示 step1（輸入幣價）
+  document.getElementById('step1').style.display = '';
+  document.getElementById('step2').style.display = 'none';
+});
+
+document.getElementById('submit-prices').onclick = function() {
+  let valid = true;
+  document.querySelectorAll('.symbol-price-input').forEach(input => {
+    if (!input.value || isNaN(parseFloat(input.value))) valid = false;
+  });
+  if (!valid) {
+    alert('請輸入所有幣價');
+    return;
+  }
+  priceMap = {};
+  document.querySelectorAll('.symbol-price-input').forEach(input => {
+    const symbol = input.getAttribute('data-symbol');
+    priceMap[symbol] = parseFloat(input.value);
+  });
+  // 顯示 step2，render vaults table（用 lastVaultsData）
+  document.getElementById('step1').style.display = 'none';
+  document.getElementById('step2').style.display = '';
+  document.getElementById('vaults-table-block').innerHTML = renderVaultsTable(lastVaultsData, priceMap);
+  document.getElementById('dateInputBlock').style.display = 'none';
+};
+
+document.getElementById('backBtn').onclick = function() {
+  document.getElementById('step2').style.display = 'none';
+  document.getElementById('step1').style.display = '';
+  document.getElementById('dateInputBlock').style.display = '';
+};
+
+function renderSymbolPriceInputs(symbols) {
+  return symbols.map(sym => {
+    let defaultVal = '';
+    if (sym === 'USDC' || sym === 'USDT' || sym === 'USDC.e') defaultVal = '1';
+    let extraAttr = '';
+    if (sym === 'WBTC') extraAttr = 'id="price-wbtc"';
+    if (sym === 'BTCB') extraAttr = 'id="price-btcb"';
+    return `
+      <label class="form-label me-3">${sym} 幣價：
+        <input type="number" step="any" min="0" class="form-control d-inline-block symbol-price-input" data-symbol="${sym}" style="width:120px;display:inline-block" required value="${defaultVal}" ${extraAttr}>
+      </label>
+    `;
+  }).join(' ');
 }
 
 function parseAUMReadable(aumStr) {
-    // "1,234.56 WBTC" -> 1234.56
     if (!aumStr) return 0;
     try {
         if (typeof aumStr === 'string') {
@@ -66,25 +153,7 @@ function parseAUMReadable(aumStr) {
     return 0;
 }
 
-function renderSymbolPriceInputs(symbols) {
-    // 處理 WBTC 與 BTCB 綁定輸入
-    return symbols.map(sym => {
-        let defaultVal = '';
-        if (sym === 'USDC' || sym === 'USDT' || sym === 'USDC.e') defaultVal = '1';
-        // 標記 WBTC 與 BTCB 欄位
-        let extraAttr = '';
-        if (sym === 'WBTC') extraAttr = 'id="price-wbtc"';
-        if (sym === 'BTCB') extraAttr = 'id="price-btcb"';
-        return `
-            <label class="form-label me-3">${sym} 幣價：
-                <input type="number" step="any" min="0" class="form-control d-inline-block symbol-price-input" data-symbol="${sym}" style="width:120px;display:inline-block" required value="${defaultVal}" ${extraAttr}>
-            </label>
-        `;
-    }).join(' ');
-}
-
 function normalizeUnit(unit) {
-    // 將特殊單位轉換為網站顯示需求
     if (!unit) return '';
     if (unit === 'USDC.e' || unit === 'axlUSDC') return 'USDC';
     if (unit === 'WETH') return 'ETH';
@@ -93,7 +162,6 @@ function normalizeUnit(unit) {
 }
 
 function formatNumberShort(num) {
-    // 將數字轉為 K/M 簡寫
     const n = Math.abs(num);
     if (n >= 1_000_000) return (num / 1_000_000).toFixed(1).replace(/\.0$/, '') + 'M';
     if (n >= 1_000) return (num / 1_000).toFixed(n >= 10_000 ? 0 : 2).replace(/\.0+$/, '') + 'K';
@@ -101,25 +169,21 @@ function formatNumberShort(num) {
 }
 
 function formatAUMWithUnit(aumStr) {
-    // 處理 AUM 欄位的單位顯示規則，並加上 K/M 簡寫
     if (!aumStr) return '';
     const match = aumStr.match(/^([\d,\.]+)\s*([A-Za-z.]+)$/);
     if (match) {
         let num = match[1];
         const unit = normalizeUnit(match[2]);
         const raw = parseFloat(num.replace(/,/g, ''));
-        // 處理 0.00 顯示 <0.01
         if (raw === 0) {
             return `<0.01 ${unit}`;
         }
-        // K/M 簡寫
         return `${formatNumberShort(raw)} ${unit}`;
     }
     return aumStr;
 }
 
 function formatAUMUSD(aumStr) {
-    // 處理 USD 結果顯示規則，e.g. "0.00 USD" → "<0.01 USD"，加上 K/M 簡寫
     if (!aumStr) return '';
     const match = aumStr.match(/^([\d,\.]+)\s*USD$/);
     if (match) {
@@ -134,14 +198,12 @@ function formatAUMUSD(aumStr) {
 }
 
 function renderVaultsTable(vaults, priceMap) {
-    // 依照 vault 類型排序：LP Vaults > Portfolio > Managed Vaults > Easy Earn
     const categoryOrder = {
         'lp vaults': 0,
         'portfolio': 1,
         'managed vaults': 2,
         'easy earn': 3
     };
-    // 過濾掉 Easy Earn 單一鏈的資料，只保留非 Easy Earn 或 Easy Earn Total（AUM_SUMMARY）
     const easyEarnChains = new Set();
     const easyEarnSymbols = new Set();
     vaults.forEach(v => {
@@ -150,21 +212,17 @@ function renderVaultsTable(vaults, priceMap) {
             if (v.symbol) easyEarnSymbols.add(v.symbol);
         }
     });
-    // 只保留非 Easy Earn vault 或 Easy Earn Total (AUM_SUMMARY)
     const filteredVaults = vaults.filter(v => v.vaultCategory && v.vaultCategory.toLowerCase() !== 'easy earn');
-    // 排序
     const sortedVaults = [...filteredVaults].sort((a, b) => {
         const ca = (a.vaultCategory || '').toLowerCase();
         const cb = (b.vaultCategory || '').toLowerCase();
         const oa = categoryOrder.hasOwnProperty(ca) ? categoryOrder[ca] : 99;
         const ob = categoryOrder.hasOwnProperty(cb) ? categoryOrder[cb] : 99;
         if (oa !== ob) return oa - ob;
-        // 次排序：symbol
         return (a.symbol || '').localeCompare(b.symbol || '');
     });
     let rows = [];
     sortedVaults.forEach((vault, i) => {
-        // 僅顯示 isActive 為 true 的 vault（AUM_SUMMARY 沒有 isActive 欄位）
         if (vault.isActive === false) return;
         let aumValue = '';
         let usdValue = '';
@@ -177,7 +235,6 @@ function renderVaultsTable(vaults, priceMap) {
         if (isSummary) vaultCategoryDisplay = 'Easy Earn Total';
         if (vault.mainAssetAUMReadable && vault.mainAssetAUMReadable !== 'No valid fund' && vault.mainAssetAUMReadable !== '' && vault.mainAssetAUMReadable !== undefined) {
             if (isSummary) {
-                // Easy Earn Total: 主資產數量欄為空，AUM 欄顯示計算結果並加上 USD 單位
                 aumValue = '';
                 const symbol = vault.symbol;
                 const price = priceMap[symbol] || 0;
@@ -189,14 +246,12 @@ function renderVaultsTable(vaults, priceMap) {
                 let usd = price ? (amt * price).toLocaleString(undefined, {maximumFractionDigits: 2}) + ' USD' : '';
                 usdValue = formatAUMUSD(usd);
             } else if (isEasyEarn) {
-                /*
                 aumValue = formatAUMWithUnit(vault.mainAssetAUMReadable);
                 const symbol = vault.symbol;
                 const price = priceMap[symbol] || 0;
                 const amt = parseAUMReadable(vault.mainAssetAUMReadable);
                 let usd = price ? (amt * price).toLocaleString(undefined, {maximumFractionDigits: 2}) + ' USD' : '';
                 usdValue = formatAUMUSD(usd);
-                */
             } else if (isManaged) {
                 aumValue = formatAUMWithUnit(vault.mainAssetAUMReadable);
                 let amt = parseAUMReadable(vault.mainAssetAUMReadable);
@@ -213,7 +268,6 @@ function renderVaultsTable(vaults, priceMap) {
         } else {
             aumValue = vault.mainAssetAUMReadable || 'No valid fund';
         }
-        // 新增 Easy Earn Total 的 chain 說明（優先用 chains 欄位，否則 fallback 舊寫法）
         let strategyExtra = '';
         let chainDisplay = vault.chain || '';
         if (isSummary) {
@@ -238,7 +292,7 @@ function renderVaultsTable(vaults, priceMap) {
         `);
     });
     return `
-        <table class="table table-bordered vault-table">
+        <table id="vaults-table" class="table table-bordered vault-table">
             <thead class="table-light">
                 <tr>
                     <th>Vault Category</th>
@@ -255,95 +309,42 @@ function renderVaultsTable(vaults, priceMap) {
     `;
 }
 
-// 請填入你的 Cloudflare Worker Vaults API URL
-const VAULTS_API_URL = 'https://aum.imjennyyang.workers.dev/';
-
-function getUTCTimestampsForDate(dateStr) {
-  // dateStr: yyyy-mm-dd
-  if (!dateStr) return { start: '', end: '' };
-  const d = new Date(dateStr + 'T00:00:00Z');
-  const start = Math.floor(d.getTime() / 1000);
-  const end = start + 86399; // 23:59:59 UTC
-  return { start, end };
-}
-
-function fetchVaultsWithTimestamp(ts) {
-  const url = `${VAULTS_API_URL}?timestamp=${ts}`;
-  return fetch(url).then(res => res.json());
-}
-
-document.getElementById('dateInput').addEventListener('input', function() {
-  document.getElementById('timestampInfo').style.display = 'none';
-  const val = this.value;
-  if (!val) return;
-  selectedDate = val;
-  const { end } = getUTCTimestampsForDate(val);
-  selectedTimestamp = end;
-});
-
-document.getElementById('submit-prices').onclick = function() {
-  // 檢查所有必填
-  let valid = true;
-  document.querySelectorAll('.symbol-price-input').forEach(input => {
-    if (!input.value || isNaN(parseFloat(input.value))) valid = false;
-  });
-  if (!valid) {
-    alert('請輸入所有主資產的幣價！');
-    return;
-  }
-  // 讀取所有 symbol 幣價
-  priceMap = {};
-  document.querySelectorAll('.symbol-price-input').forEach(input => {
-    priceMap[input.dataset.symbol] = parseFloat(input.value) || 0;
-  });
-  if (!selectedTimestamp) {
-    alert('請先選擇日期');
-    return;
-  }
-  fetchVaultsWithTimestamp(selectedTimestamp).then(data => {
-    lastVaultsData = data;
-    document.getElementById('step1').style.display = 'none';
-    document.getElementById('step2').style.display = '';
-    document.getElementById('vaults-table-block').innerHTML = renderVaultsTable(data, priceMap);
-    document.getElementById('dateInputBlock').style.display = 'none';
-  });
-};
-
-document.getElementById('backBtn').onclick = function() {
-  document.getElementById('step2').style.display = 'none';
-  document.getElementById('step1').style.display = '';
-  document.getElementById('dateInputBlock').style.display = '';
-};
-
-// 讓 WBTC 價格變動時預設填入 BTCB，但 BTCB 可手動修改
 function setupWBTCBTCBLink() {
     const wbtcInput = document.getElementById('price-wbtc');
     const btcbInput = document.getElementById('price-btcb');
     if (wbtcInput && btcbInput) {
-        // 只在 WBTC 輸入時自動帶入 BTCB
         wbtcInput.addEventListener('input', () => {
-            // 僅當 BTCB 尚未被手動修改過或與 WBTC 相同時才同步
             if (!btcbInput._userModified || btcbInput.value === '' || btcbInput.value === wbtcInput.oldValue || btcbInput.value === wbtcInput.oldValue + '') {
                 btcbInput.value = wbtcInput.value;
             }
             wbtcInput.oldValue = wbtcInput.value;
         });
-        // 使用者手動修改 BTCB 時，標記 _userModified
         btcbInput.addEventListener('input', () => {
             btcbInput._userModified = true;
         });
     }
 }
 
-// 主流程
-async function init() {
-    vaults = await fetchVaultsJson();
-    // 只抓 Easy Earn/Managed Vaults 的 symbol
-    const symbols = getUniqueSymbols(vaults);
-    document.getElementById('symbol-price-inputs').innerHTML = renderSymbolPriceInputs(symbols);
-    setupWBTCBTCBLink();
+function exportTableToExcel(tableId, filename = '') {
+  const downloadLink = document.createElement('a');
+  const tableSelect = document.getElementById(tableId);
+  let tableHTML = tableSelect.outerHTML.replace(/ /g, '%20');
+  filename = filename ? filename + '.xls' : 'vaults_aum.xls';
+  downloadLink.href = 'data:application/vnd.ms-excel,' + tableHTML;
+  downloadLink.download = filename;
+  document.body.appendChild(downloadLink);
+  downloadLink.click();
+  document.body.removeChild(downloadLink);
 }
-document.addEventListener('DOMContentLoaded', init);
+
+document.getElementById('download-excel').onclick = function() {
+  // 假設你的 renderVaultsTable 產生的表格 id 為 vaults-table
+  exportTableToExcel('vaults-table', `vaults_aum_${selectedDate || ''}`);
+};
+
+document.addEventListener('DOMContentLoaded', function() {
+    setupWBTCBTCBLink();
+});
 </script>
 </body>
 </html>
