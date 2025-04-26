@@ -18,7 +18,14 @@
     <div class="mb-3" id="dateInputBlock">
       <label for="dateInput" class="form-label">選擇日期</label>
       <input type="date" id="dateInput" class="form-control" style="max-width:200px;display:inline-block;">
+      <button id="confirm-date" class="btn btn-secondary ms-2">確認</button>
       <div id="timestampInfo" style="margin-top:0.5em;color:#888;font-size:0.95em;display:none;"></div>
+    </div>
+    <div id="loading-block" style="display:none;text-align:center;margin:32px 0;">
+      <div class="spinner-border text-primary" role="status" style="width:3rem;height:3rem;">
+        <span class="visually-hidden">Loading...</span>
+      </div>
+      <div style="margin-top:1em;color:#888;">資料抓取中，請稍候...</div>
     </div>
     <div id="step1" style="display:none">
         <p>請先輸入所有 Easy Earn/Managed Vaults 會用到的主資產幣價：</p>
@@ -32,7 +39,6 @@
     </div>
 </div>
 <script>
-// const VAULTS_API_URL = 'https://aum.imjennyyang.workers.dev/';
 const VAULTS_API_URL = 'https://aum.imjennyyang.workers.dev/';
 let priceMap = {};
 let selectedTimestamp = null;
@@ -79,23 +85,29 @@ window.addEventListener('DOMContentLoaded', function() {
   document.getElementById('step1').style.display = 'none';
   document.getElementById('step2').style.display = 'none';
   document.getElementById('dateInputBlock').style.display = '';
+  document.getElementById('loading-block').style.display = 'none';
 });
 
-document.getElementById('dateInput').addEventListener('input', async function() {
+document.getElementById('confirm-date').addEventListener('click', async function() {
   document.getElementById('timestampInfo').style.display = 'none';
-  const val = this.value;
+  const val = document.getElementById('dateInput').value;
   if (!val) return;
   selectedDate = val;
   const { start } = getUTCTimestampsForDate(val);
   selectedTimestamp = start;
-  // 分批拿全部 vaults，暫存起來
+  // 顯示 loading spinner
+  document.getElementById('loading-block').style.display = '';
+  document.getElementById('step1').style.display = 'none';
+  document.getElementById('step2').style.display = 'none';
+  // 取資料
   lastVaultsData = await fetchAllVaultsWithTimestamp(selectedTimestamp, 10);
   allSymbols = Array.from(new Set(
     (lastVaultsData || []).filter(v => v.vaultCategory && (v.vaultCategory === 'Easy Earn' || v.vaultCategory === 'Managed Vaults')).map(v => v.symbol)
   ));
   document.getElementById('symbol-price-inputs').innerHTML = renderSymbolPriceInputs(allSymbols);
   setupWBTCBTCBLink();
-  // 直接顯示 step1（輸入幣價）
+  // loading 結束，顯示 step1（輸入幣價）
+  document.getElementById('loading-block').style.display = 'none';
   document.getElementById('step1').style.display = '';
   document.getElementById('step2').style.display = 'none';
 });
