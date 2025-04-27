@@ -6,11 +6,11 @@ Teahouse Vaults AUM Overview Page
 -->
 
 <!DOCTYPE html>
-<html lang="zh-Hant">
+<html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Teahouse Vaults AUM 全覽</title>
+    <title>Teahouse Vaults AUM Overview</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
     <style>
         body { background: #f8f9fa; }
@@ -21,14 +21,14 @@ Teahouse Vaults AUM Overview Page
 </head>
 <body>
 <div class="container">
-    <h2 class="mb-4">Teahouse Vaults AUM 全覽</h2>
-    <!-- 日期輸入區塊（使用者選擇查詢日期） -->
+    <h2 class="mb-4">Teahouse Vaults AUM Overview</h2>
+    <!-- Date input block (user selects the date to query vaults AUM) -->
     <div class="mb-3" id="dateInputBlock">
       <!-- Date input section: user selects the date to query vaults AUM -->
-      <label for="dateInput" class="form-label">選擇日期</label>
+      <label for="dateInput" class="form-label">Select Date</label>
       <input type="date" id="dateInput" class="form-control" style="max-width:200px;display:inline-block;">
       <!-- User must click confirm to start fetching data -->
-      <button id="confirm-date" class="btn btn-secondary ms-2">確認</button>
+      <button id="confirm-date" class="btn btn-secondary ms-2">Confirm</button>
       <div id="timestampInfo" style="margin-top:0.5em;color:#888;font-size:0.95em;display:none;"></div>
     </div>
     <!-- Loading spinner: shown while fetching vaults data from API -->
@@ -36,18 +36,18 @@ Teahouse Vaults AUM Overview Page
       <div class="spinner-border text-primary" role="status" style="width:3rem;height:3rem;">
         <span class="visually-hidden">Loading...</span>
       </div>
-      <div style="margin-top:1em;color:#888;">資料抓取中，請稍候...</div>
+      <div style="margin-top:1em;color:#888;">Fetching data, please wait...</div>
     </div>
     <!-- Price input section (step1): shown after vaults data is fetched -->
     <div id="step1" style="display:none">
-        <p>請先輸入所有 Easy Earn/Managed Vaults 會用到的主資產幣價：</p>
+        <p>Please enter the price for all main assets used by Easy Earn/Managed Vaults:</p>
         <div id="symbol-price-inputs" class="symbol-price-input-block"></div>
-        <button id="submit-prices" class="btn btn-primary">計算所有 Vaults AUM</button>
+        <button id="submit-prices" class="btn btn-primary">Calculate All Vaults AUM</button>
     </div>
     <!-- Vaults result display section (step2): shown after calculation -->
     <div id="step2" style="display:none">
-        <button id="backBtn" class="btn btn-outline-secondary mb-3">返回</button>
-        <button id="download-excel" class="btn btn-success mb-3">下載 Excel</button>
+        <button id="backBtn" class="btn btn-outline-secondary mb-3">Back</button>
+        <button id="download-excel" class="btn btn-success mb-3">Download Excel</button>
         <div id="vaults-table-block"></div>
     </div>
 </div>
@@ -209,15 +209,28 @@ function renderVaultsTable(vaults, priceMap) {
         'managed vaults': 2,
         'easy earn': 3
     };
-    const easyEarnChains = new Set();
-    const easyEarnSymbols = new Set();
+    // Group Easy Earn Total rows by Strategy+Symbol, aggregate chains
+    const summaryRowsMap = new Map();
     vaults.forEach(v => {
-        if (v.vaultCategory && v.vaultCategory.toLowerCase() === 'easy earn') {
-            if (v.chain) easyEarnChains.add(v.chain);
-            if (v.symbol) easyEarnSymbols.add(v.symbol);
+        if (v.vaultCategory === 'Easy Earn Total') {
+            const key = `${v.Strategy}||${v.symbol}`;
+            if (!summaryRowsMap.has(key)) {
+                summaryRowsMap.set(key, {...v, chains: Array.isArray(v.chains) ? [...v.chains] : (v.chains ? [v.chains] : [])});
+            } else {
+                // Merge chains
+                const prev = summaryRowsMap.get(key);
+                let prevChains = Array.isArray(prev.chains) ? prev.chains : (prev.chains ? [prev.chains] : []);
+                let newChains = Array.isArray(v.chains) ? v.chains : (v.chains ? [v.chains] : []);
+                prev.chains = Array.from(new Set([...prevChains, ...newChains]));
+                summaryRowsMap.set(key, prev);
+            }
         }
     });
-    const filteredVaults = vaults.filter(v => v.vaultCategory && v.vaultCategory.toLowerCase() !== 'easy earn');
+    // Remove duplicate Easy Earn Total rows from vaults
+    let filteredVaults = vaults.filter(v => v.vaultCategory !== 'Easy Earn Total' && !(v.vaultCategory && v.vaultCategory.toLowerCase() === 'easy earn'));
+    // Add back the consolidated summary rows
+    filteredVaults = filteredVaults.concat(Array.from(summaryRowsMap.values()));
+    // Sort as before
     const sortedVaults = [...filteredVaults].sort((a, b) => {
         const ca = (a.vaultCategory || '').toLowerCase();
         const cb = (b.vaultCategory || '').toLowerCase();
@@ -251,12 +264,13 @@ function renderVaultsTable(vaults, priceMap) {
                 let usd = price ? (amt * price).toLocaleString(undefined, {maximumFractionDigits: 2}) + ' USD' : '';
                 usdValue = formatAUMUSD(usd);
             } else if (isEasyEarn) {
-                aumValue = formatAUMWithUnit(vault.mainAssetAUMReadable);
-                const symbol = vault.symbol;
-                const price = priceMap[symbol] || 0;
-                const amt = parseAUMReadable(vault.mainAssetAUMReadable);
-                let usd = price ? (amt * price).toLocaleString(undefined, {maximumFractionDigits: 2}) + ' USD' : '';
-                usdValue = formatAUMUSD(usd);
+                // aumValue = formatAUMWithUnit(vault.mainAssetAUMReadable);
+                // const symbol = vault.symbol;
+                // const price = priceMap[symbol] || 0;
+                // const amt = parseAUMReadable(vault.mainAssetAUMReadable);
+                // let usd = price ? (amt * price).toLocaleString(undefined, {maximumFractionDigits: 2}) + ' USD' : '';
+                // usdValue = formatAUMUSD(usd);
+                return;
             } else if (isManaged) {
                 aumValue = formatAUMWithUnit(vault.mainAssetAUMReadable);
                 let amt = parseAUMReadable(vault.mainAssetAUMReadable);
@@ -277,11 +291,11 @@ function renderVaultsTable(vaults, priceMap) {
         let chainDisplay = vault.chain || '';
         if (isSummary) {
             let chains = vault.chains || [];
-            if (chains.length === 0 && easyEarnChains.size > 0) {
+            if (chains.length === 0 && Array.isArray(vault.chains) && vault.chains.length === 0 && easyEarnChains.size > 0) {
                 chains = Array.from(easyEarnChains);
             }
             if (chains.length > 0) {
-                chainDisplay = chains.map(c => c.slice(1)).join(', ');
+                chainDisplay = chains.join(', ');
             }
         }
         rows.push(`
@@ -305,7 +319,7 @@ function renderVaultsTable(vaults, priceMap) {
                     <th>Chain</th>
                     <th>Protocol</th>
                     <th>Symbol</th>
-                    <th>主資產數量</th>
+                    <th>Main Asset Quantity</th>
                     <th>AUM</th>
                 </tr>
             </thead>
@@ -324,7 +338,7 @@ function renderSymbolPriceInputs(symbols) {
     if (sym === 'WBTC') extraAttr = 'id="price-wbtc"';
     if (sym === 'BTCB') extraAttr = 'id="price-btcb"';
     return `
-      <label class="form-label me-3">${sym} 幣價：
+      <label class="form-label me-3">${sym} Price:
         <input type="number" step="any" min="0" class="form-control d-inline-block symbol-price-input" data-symbol="${sym}" style="width:120px;display:inline-block" required value="${defaultVal}" ${extraAttr}>
       </label>
     `;
@@ -373,7 +387,7 @@ document.getElementById('submit-prices').onclick = function() {
     if (!input.value || isNaN(parseFloat(input.value))) valid = false;
   });
   if (!valid) {
-    alert('請輸入所有幣價');
+    alert('Please enter all prices');
     return;
   }
   priceMap = {};
