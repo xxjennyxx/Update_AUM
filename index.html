@@ -209,25 +209,64 @@ function renderVaultsTable(vaults, priceMap) {
         'managed vaults': 2,
         'easy earn': 3
     };
-    // Group Easy Earn Total rows by Strategy+Symbol, aggregate chains
+    // Group Easy Earn Total rows by Strategy+Symbol, aggregate chains and sum AUM from all Easy Earn (all chains)
     const summaryRowsMap = new Map();
     vaults.forEach(v => {
-        if (v.vaultCategory === 'Easy Earn Total') {
+        if (v.vaultCategory && v.vaultCategory.toLowerCase() === 'easy earn') {
             const key = `${v.Strategy}||${v.symbol}`;
+            const aum = parseFloat((v.mainAssetAUMReadable || '').replace(/,/g, '').split(' ')[0]) || 0;
             if (!summaryRowsMap.has(key)) {
-                summaryRowsMap.set(key, {...v, chains: Array.isArray(v.chains) ? [...v.chains] : (v.chains ? [v.chains] : [])});
+                summaryRowsMap.set(key, {
+                    vaultCategory: 'Easy Earn Total',
+                    Strategy: v.Strategy,
+                    chain: '',
+                    chainId: '',
+                    protocol: '',
+                    mainAssetIndex: '',
+                    share_address: '',
+                    symbol: v.symbol,
+                    decimals: '',
+                    isActive: '',
+                    mainAssetAUMReadable: '', // will fill later
+                    chains: v.chain ? [v.chain] : [],
+                    _aum_sum: aum
+                });
             } else {
-                // Merge chains
                 const prev = summaryRowsMap.get(key);
                 let prevChains = Array.isArray(prev.chains) ? prev.chains : (prev.chains ? [prev.chains] : []);
-                let newChains = Array.isArray(v.chains) ? v.chains : (v.chains ? [v.chains] : []);
+                let newChains = v.chain ? [v.chain] : [];
                 prev.chains = Array.from(new Set([...prevChains, ...newChains]));
+                prev._aum_sum += aum;
                 summaryRowsMap.set(key, prev);
             }
         }
     });
+    // 計算 mainAssetAUMReadable 並乘以幣價，並記錄每個 chain 的 aum
+    summaryRowsMap.forEach((row, key) => {
+        // 幣價 (priceMap) 乘 aum_sum
+        let price = 1;
+        if (priceMap && row.symbol && priceMap[row.symbol] != null) {
+            price = priceMap[row.symbol];
+        }
+        // 找出所有該組合的 easy earn vaults，記錄各鏈aum（只列數字）
+        const allAums = vaults.filter(v => v.vaultCategory && v.vaultCategory.toLowerCase() === 'easy earn' && v.Strategy === row.Strategy && v.symbol === row.symbol)
+            .map(v => {
+                let aum = parseFloat((v.mainAssetAUMReadable || '').replace(/,/g, '').split(' ')[0]) || 0;
+                return `${aum.toLocaleString(undefined, { maximumFractionDigits: 8 })}`;
+            });
+        row.mainAssetQuantityDetail = allAums.join(' + ') + (allAums.length ? ` ${row.symbol}` : '');
+        const aumValue = row._aum_sum;
+        const aumFiat = aumValue * price;
+        row.mainAssetAUMReadable = `${aumValue.toLocaleString(undefined, { maximumFractionDigits: 8 })} ${row.symbol} (combined)`;
+        row.mainAssetAUMFiat = price !== 1 ? `${aumFiat.toLocaleString(undefined, { maximumFractionDigits: 2 })} USD` : '';
+        delete row._aum_sum;
+    });
     // Remove duplicate Easy Earn Total rows from vaults
-    let filteredVaults = vaults.filter(v => v.vaultCategory !== 'Easy Earn Total' && !(v.vaultCategory && v.vaultCategory.toLowerCase() === 'easy earn'));
+    // let filteredVaults = vaults.filter(v => v.vaultCategory !== 'Easy Earn Total');
+    // let filteredVaults = vaults.filter(v => v.vaultCategory !== 'Easy Earn Total' && !(v.vaultCategory && v.vaultCategory.toLowerCase() === 'easy earn'));
+    // 只保留非 Easy Earn vaults
+    let filteredVaults = vaults.filter(v => !(v.vaultCategory && v.vaultCategory.toLowerCase() === 'easy earn total')
+        && !(v.vaultCategory && v.vaultCategory.toLowerCase() === 'easy earn'));
     // Add back the consolidated summary rows
     filteredVaults = filteredVaults.concat(Array.from(summaryRowsMap.values()));
     // Sort as before
@@ -264,13 +303,13 @@ function renderVaultsTable(vaults, priceMap) {
                 let usd = price ? (amt * price).toLocaleString(undefined, {maximumFractionDigits: 2}) + ' USD' : '';
                 usdValue = formatAUMUSD(usd);
             } else if (isEasyEarn) {
-                // aumValue = formatAUMWithUnit(vault.mainAssetAUMReadable);
-                // const symbol = vault.symbol;
-                // const price = priceMap[symbol] || 0;
-                // const amt = parseAUMReadable(vault.mainAssetAUMReadable);
-                // let usd = price ? (amt * price).toLocaleString(undefined, {maximumFractionDigits: 2}) + ' USD' : '';
-                // usdValue = formatAUMUSD(usd);
-                return;
+                aumValue = formatAUMWithUnit(vault.mainAssetAUMReadable);
+                const symbol = vault.symbol;
+                const price = priceMap[symbol] || 0;
+                const amt = parseAUMReadable(vault.mainAssetAUMReadable);
+                let usd = price ? (amt * price).toLocaleString(undefined, {maximumFractionDigits: 2}) + ' USD' : '';
+                usdValue = formatAUMUSD(usd);
+                // return;
             } else if (isManaged) {
                 aumValue = formatAUMWithUnit(vault.mainAssetAUMReadable);
                 let amt = parseAUMReadable(vault.mainAssetAUMReadable);
@@ -298,6 +337,12 @@ function renderVaultsTable(vaults, priceMap) {
                 chainDisplay = chains.join(', ');
             }
         }
+        let mainAssetQuantity = '';
+        if (isSummary && vault.mainAssetQuantityDetail) {
+            mainAssetQuantity = vault.mainAssetQuantityDetail;
+        } else {
+            mainAssetQuantity = vault.mainAssetAUMReadable || '';
+        }
         rows.push(`
             <tr>
                 <td>${vaultCategoryDisplay}</td>
@@ -305,7 +350,7 @@ function renderVaultsTable(vaults, priceMap) {
                 <td>${chainDisplay}</td>
                 <td>${vault.protocol}</td>
                 <td>${vault.symbol}</td>
-                <td>${formatAUMWithUnit(aumValue)}</td>
+                <td>${formatAUMWithUnit(mainAssetQuantity)}</td>
                 <td>${isSummary ? usdValue : (isLP || isPortfolio ? usdValue : (isManaged ? usdValue : 'N/A'))}</td>
             </tr>
         `);
