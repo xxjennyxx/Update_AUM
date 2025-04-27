@@ -1,3 +1,10 @@
+<!--
+Teahouse Vaults AUM Overview Page
+- Allows users to select a date and query all vaults' AUM (Assets Under Management)
+- User flow: select date → click confirm → loading → input prices → calculate → show all vaults results, can download as Excel
+- All UI blocks and JS logic are annotated in detail below.
+-->
+
 <!DOCTYPE html>
 <html lang="zh-Hant">
 <head>
@@ -15,23 +22,29 @@
 <body>
 <div class="container">
     <h2 class="mb-4">Teahouse Vaults AUM 全覽</h2>
+    <!-- 日期輸入區塊（使用者選擇查詢日期） -->
     <div class="mb-3" id="dateInputBlock">
+      <!-- Date input section: user selects the date to query vaults AUM -->
       <label for="dateInput" class="form-label">選擇日期</label>
       <input type="date" id="dateInput" class="form-control" style="max-width:200px;display:inline-block;">
+      <!-- User must click confirm to start fetching data -->
       <button id="confirm-date" class="btn btn-secondary ms-2">確認</button>
       <div id="timestampInfo" style="margin-top:0.5em;color:#888;font-size:0.95em;display:none;"></div>
     </div>
+    <!-- Loading spinner: shown while fetching vaults data from API -->
     <div id="loading-block" style="display:none;text-align:center;margin:32px 0;">
       <div class="spinner-border text-primary" role="status" style="width:3rem;height:3rem;">
         <span class="visually-hidden">Loading...</span>
       </div>
       <div style="margin-top:1em;color:#888;">資料抓取中，請稍候...</div>
     </div>
+    <!-- Price input section (step1): shown after vaults data is fetched -->
     <div id="step1" style="display:none">
         <p>請先輸入所有 Easy Earn/Managed Vaults 會用到的主資產幣價：</p>
         <div id="symbol-price-inputs" class="symbol-price-input-block"></div>
         <button id="submit-prices" class="btn btn-primary">計算所有 Vaults AUM</button>
     </div>
+    <!-- Vaults result display section (step2): shown after calculation -->
     <div id="step2" style="display:none">
         <button id="backBtn" class="btn btn-outline-secondary mb-3">返回</button>
         <button id="download-excel" class="btn btn-success mb-3">下載 Excel</button>
@@ -39,48 +52,17 @@
     </div>
 </div>
 <script>
+// ===================== Variable Declarations =====================
+// VAULTS_API_URL: Cloudflare Worker API endpoint
 const VAULTS_API_URL = 'https://aum.imjennyyang.workers.dev/';
-let priceMap = {};
-let selectedTimestamp = null;
-let selectedDate = null;
-let lastVaultsData = null;
-let allSymbols = [];
+let priceMap = {};             // Mapping from symbol to user-input price
+let selectedTimestamp = null;  // The UTC timestamp selected by the user
+let selectedDate = null;       // The date string selected by the user
+let lastVaultsData = [];       // Cached vaults data fetched from API
+let allSymbols = [];           // All main asset symbols for price input
 
-function getUTCTimestampsForDate(dateStr) {
-  // dateStr: yyyy-mm-dd
-  if (!dateStr) return { start: '', end: '' };
-  // 強制視為 UTC 00:00:00
-  const d = new Date(dateStr + 'T00:00:00Z');
-  const start = Math.floor(d.getTime() / 1000); // UTC 00:00:00
-  const end = start + 86399; // UTC 23:59:59
-  return { start, end };
-}
-
-function fetchVaultsWithTimestamp(ts) {
-  const url = `${VAULTS_API_URL}?timestamp=${ts}`;
-  return fetch(url).then(res => res.json());
-}
-
-// 分批請求，全部合併顯示
-async function fetchAllVaultsWithTimestamp(ts, pageSize = 10, maxPages = 100) {
-  let allVaults = [];
-  let page = 1;
-  let hasMore = true;
-  while (hasMore && page <= maxPages) {
-    const url = `${VAULTS_API_URL}?timestamp=${ts}&page=${page}&page_size=${pageSize}`;
-    const data = await fetch(url).then(res => res.json());
-    if (!Array.isArray(data) || data.length === 0) break;
-    allVaults = allVaults.concat(data);
-    if (data.length < pageSize) {
-      hasMore = false;
-    } else {
-      page++;
-      await new Promise(r => setTimeout(r, 200));
-    }
-  }
-  return allVaults;
-}
-
+// ===================== Page Initialization =====================
+// On page load, only the date selection block is shown
 window.addEventListener('DOMContentLoaded', function() {
   document.getElementById('step1').style.display = 'none';
   document.getElementById('step2').style.display = 'none';
@@ -88,72 +70,81 @@ window.addEventListener('DOMContentLoaded', function() {
   document.getElementById('loading-block').style.display = 'none';
 });
 
+// ===================== Date Confirm Button =====================
+// User must click "Confirm" to start fetching data and show loading spinner
+// 1. Show loading
+// 2. Fetch vaults
+// 3. Show main asset price input section
+// 4. Hide loading
+
 document.getElementById('confirm-date').addEventListener('click', async function() {
   document.getElementById('timestampInfo').style.display = 'none';
   const val = document.getElementById('dateInput').value;
   if (!val) return;
   selectedDate = val;
+  // Get UTC 00:00:00 timestamp for the selected date
   const { start } = getUTCTimestampsForDate(val);
   selectedTimestamp = start;
-  // 顯示 loading spinner
+  // Show loading spinner
   document.getElementById('loading-block').style.display = '';
   document.getElementById('step1').style.display = 'none';
   document.getElementById('step2').style.display = 'none';
-  // 取資料
+  // Fetch all vaults in batches, cache the result
   lastVaultsData = await fetchAllVaultsWithTimestamp(selectedTimestamp, 10);
+  // Extract all main asset symbols for Easy Earn/Managed Vaults
   allSymbols = Array.from(new Set(
     (lastVaultsData || []).filter(v => v.vaultCategory && (v.vaultCategory === 'Easy Earn' || v.vaultCategory === 'Managed Vaults')).map(v => v.symbol)
   ));
+  // Render price input fields for each symbol
   document.getElementById('symbol-price-inputs').innerHTML = renderSymbolPriceInputs(allSymbols);
   setupWBTCBTCBLink();
-  // loading 結束，顯示 step1（輸入幣價）
+  // Hide loading and show price input section
   document.getElementById('loading-block').style.display = 'none';
   document.getElementById('step1').style.display = '';
   document.getElementById('step2').style.display = 'none';
 });
 
-document.getElementById('submit-prices').onclick = function() {
-  let valid = true;
-  document.querySelectorAll('.symbol-price-input').forEach(input => {
-    if (!input.value || isNaN(parseFloat(input.value))) valid = false;
-  });
-  if (!valid) {
-    alert('請輸入所有幣價');
-    return;
-  }
-  priceMap = {};
-  document.querySelectorAll('.symbol-price-input').forEach(input => {
-    const symbol = input.getAttribute('data-symbol');
-    priceMap[symbol] = parseFloat(input.value);
-  });
-  // 顯示 step2，render vaults table（用 lastVaultsData）
-  document.getElementById('step1').style.display = 'none';
-  document.getElementById('step2').style.display = '';
-  document.getElementById('vaults-table-block').innerHTML = renderVaultsTable(lastVaultsData, priceMap);
-  document.getElementById('dateInputBlock').style.display = 'none';
+// ===================== Price Input, Calculation, and Table Rendering =====================
+// User enters prices for all main assets, then clicks to calculate and display vaults AUM table
+// The calculation and rendering logic continues as per the original JS flow
+
+// ===================== Excel Download Button =====================
+// When clicked, exports the vaults table as an .xls file for user download
+function exportTableToExcel(tableId, filename = '') {
+  const downloadLink = document.createElement('a');
+  const tableSelect = document.getElementById(tableId);
+  let tableHTML = tableSelect.outerHTML.replace(/ /g, '%20');
+  filename = filename ? filename + '.xls' : 'vaults_aum.xls';
+  downloadLink.href = 'data:application/vnd.ms-excel,' + tableHTML;
+  downloadLink.download = filename;
+  document.body.appendChild(downloadLink);
+  downloadLink.click();
+  document.body.removeChild(downloadLink);
+}
+document.getElementById('download-excel').onclick = function() {
+  exportTableToExcel('vaults-table', `vaults_aum_${selectedDate || ''}`);
 };
 
-document.getElementById('backBtn').onclick = function() {
-  document.getElementById('step2').style.display = 'none';
-  document.getElementById('step1').style.display = '';
-  document.getElementById('dateInputBlock').style.display = '';
-};
-
-function renderSymbolPriceInputs(symbols) {
-  return symbols.map(sym => {
-    let defaultVal = '';
-    if (sym === 'USDC' || sym === 'USDT' || sym === 'USDC.e') defaultVal = '1';
-    let extraAttr = '';
-    if (sym === 'WBTC') extraAttr = 'id="price-wbtc"';
-    if (sym === 'BTCB') extraAttr = 'id="price-btcb"';
-    return `
-      <label class="form-label me-3">${sym} 幣價：
-        <input type="number" step="any" min="0" class="form-control d-inline-block symbol-price-input" data-symbol="${sym}" style="width:120px;display:inline-block" required value="${defaultVal}" ${extraAttr}>
-      </label>
-    `;
-  }).join(' ');
+// ===================== WBTC/BTCB Price Linkage =====================
+// If user enters a value for WBTC, BTCB will auto-fill with the same value unless the user manually edits BTCB
+function setupWBTCBTCBLink() {
+    const wbtcInput = document.getElementById('price-wbtc');
+    const btcbInput = document.getElementById('price-btcb');
+    if (wbtcInput && btcbInput) {
+        wbtcInput.addEventListener('input', () => {
+            if (!btcbInput._userModified || btcbInput.value === '' || btcbInput.value === wbtcInput.oldValue || btcbInput.value === wbtcInput.oldValue + '') {
+                btcbInput.value = wbtcInput.value;
+            }
+            wbtcInput.oldValue = wbtcInput.value;
+        });
+        btcbInput.addEventListener('input', () => {
+            btcbInput._userModified = true;
+        });
+    }
 }
 
+// ===================== AUM Formatting Utility =====================
+// Parses a human-readable AUM string to a float value
 function parseAUMReadable(aumStr) {
     if (!aumStr) return 0;
     try {
@@ -209,6 +200,8 @@ function formatAUMUSD(aumStr) {
     return aumStr;
 }
 
+// ===================== Vaults 表格渲染 =====================
+// Renders the vaults data as an HTML table for display
 function renderVaultsTable(vaults, priceMap) {
     const categoryOrder = {
         'lp vaults': 0,
@@ -321,42 +314,85 @@ function renderVaultsTable(vaults, priceMap) {
     `;
 }
 
-function setupWBTCBTCBLink() {
-    const wbtcInput = document.getElementById('price-wbtc');
-    const btcbInput = document.getElementById('price-btcb');
-    if (wbtcInput && btcbInput) {
-        wbtcInput.addEventListener('input', () => {
-            if (!btcbInput._userModified || btcbInput.value === '' || btcbInput.value === wbtcInput.oldValue || btcbInput.value === wbtcInput.oldValue + '') {
-                btcbInput.value = wbtcInput.value;
-            }
-            wbtcInput.oldValue = wbtcInput.value;
-        });
-        btcbInput.addEventListener('input', () => {
-            btcbInput._userModified = true;
-        });
+// ===================== 幣價輸入欄位渲染 =====================
+// Renders input fields for each main asset symbol
+function renderSymbolPriceInputs(symbols) {
+  return symbols.map(sym => {
+    let defaultVal = '';
+    if (sym === 'USDC' || sym === 'USDT' || sym === 'USDC.e') defaultVal = '1';
+    let extraAttr = '';
+    if (sym === 'WBTC') extraAttr = 'id="price-wbtc"';
+    if (sym === 'BTCB') extraAttr = 'id="price-btcb"';
+    return `
+      <label class="form-label me-3">${sym} 幣價：
+        <input type="number" step="any" min="0" class="form-control d-inline-block symbol-price-input" data-symbol="${sym}" style="width:120px;display:inline-block" required value="${defaultVal}" ${extraAttr}>
+      </label>
+    `;
+  }).join(' ');
+}
+
+// ===================== UTC Timestamp 處理 =====================
+// Converts a date string (yyyy-mm-dd) to UTC 00:00:00 and 23:59:59 timestamps
+function getUTCTimestampsForDate(dateStr) {
+  if (!dateStr) return { start: '', end: '' };
+  const d = new Date(dateStr + 'T00:00:00Z');
+  const start = Math.floor(d.getTime() / 1000); // UTC 00:00:00
+  const end = start + 86399; // UTC 23:59:59
+  return { start, end };
+}
+
+// ===================== API 資料抓取 =====================
+// Fetches all vaults data from the API in batches, returns a merged array
+async function fetchAllVaultsWithTimestamp(ts, pageSize = 10, maxPages = 100) {
+  let allVaults = [];
+  let page = 1;
+  let hasMore = true;
+  while (hasMore && page <= maxPages) {
+    const url = `${VAULTS_API_URL}?timestamp=${ts}&page=${page}&page_size=${pageSize}`;
+    const data = await fetch(url).then(res => res.json());
+    if (!Array.isArray(data) || data.length === 0) break;
+    allVaults = allVaults.concat(data);
+    if (data.length < pageSize) {
+      hasMore = false;
+    } else {
+      page++;
+      await new Promise(r => setTimeout(r, 200)); // Avoid API rate limit
     }
+  }
+  return allVaults;
 }
 
-function exportTableToExcel(tableId, filename = '') {
-  const downloadLink = document.createElement('a');
-  const tableSelect = document.getElementById(tableId);
-  let tableHTML = tableSelect.outerHTML.replace(/ /g, '%20');
-  filename = filename ? filename + '.xls' : 'vaults_aum.xls';
-  downloadLink.href = 'data:application/vnd.ms-excel,' + tableHTML;
-  downloadLink.download = filename;
-  document.body.appendChild(downloadLink);
-  downloadLink.click();
-  document.body.removeChild(downloadLink);
-}
+// ===================== 按鈕事件處理 =====================
+// Handles the price submission and back button logic
+// After price input, calculates and displays the vaults table
+// Back button returns to price input section
 
-document.getElementById('download-excel').onclick = function() {
-  // 假設你的 renderVaultsTable 產生的表格 id 為 vaults-table
-  exportTableToExcel('vaults-table', `vaults_aum_${selectedDate || ''}`);
+document.getElementById('submit-prices').onclick = function() {
+  let valid = true;
+  document.querySelectorAll('.symbol-price-input').forEach(input => {
+    if (!input.value || isNaN(parseFloat(input.value))) valid = false;
+  });
+  if (!valid) {
+    alert('請輸入所有幣價');
+    return;
+  }
+  priceMap = {};
+  document.querySelectorAll('.symbol-price-input').forEach(input => {
+    const symbol = input.getAttribute('data-symbol');
+    priceMap[symbol] = parseFloat(input.value);
+  });
+  // Show result table (step2) using lastVaultsData and user priceMap
+  document.getElementById('step1').style.display = 'none';
+  document.getElementById('step2').style.display = '';
+  document.getElementById('vaults-table-block').innerHTML = renderVaultsTable(lastVaultsData, priceMap);
+  document.getElementById('dateInputBlock').style.display = 'none';
 };
 
-document.addEventListener('DOMContentLoaded', function() {
-    setupWBTCBTCBLink();
-});
+document.getElementById('backBtn').onclick = function() {
+  document.getElementById('step2').style.display = 'none';
+  document.getElementById('step1').style.display = '';
+  document.getElementById('dateInputBlock').style.display = '';
+};
 </script>
 </body>
 </html>
