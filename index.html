@@ -40,7 +40,7 @@ Teahouse Vaults AUM Overview Page
     </div>
     <!-- Price input section (step1): shown after vaults data is fetched -->
     <div id="step1" style="display:none">
-        <p>Please enter the price for all main assets used by Easy Earn/Managed Vaults:</p>
+        <p>Please enter the price for each main asset according to the <b>Selected Date</b> (you may refer to <a href="https://coinmarketcap.com/" target="_blank">CoinMarketCap</a> historical prices):</p>
         <div id="symbol-price-inputs" class="symbol-price-input-block"></div>
         <button id="submit-prices" class="btn btn-primary">Calculate All Vaults AUM</button>
     </div>
@@ -48,6 +48,7 @@ Teahouse Vaults AUM Overview Page
     <div id="step2" style="display:none">
         <button id="backBtn" class="btn btn-outline-secondary mb-3">Back</button>
         <button id="download-excel" class="btn btn-success mb-3">Download Excel</button>
+        <button id="download-csv" class="btn btn-outline-success mb-3 ms-2">Download CSV</button>
         <div id="vaults-table-block"></div>
     </div>
 </div>
@@ -203,23 +204,28 @@ function formatAUMUSD(aumStr) {
 // ===================== Vaults 表格渲染 =====================
 // Renders the vaults data as an HTML table for display
 function renderVaultsTable(vaults, priceMap) {
+    // 定義 vault 類別排序順序，方便後續排序顯示
     const categoryOrder = {
         'lp vaults': 0,
         'portfolio': 1,
         'managed vaults': 2,
         'easy earn': 3
     };
-    // Group Easy Earn Total rows by Strategy+Symbol, aggregate chains and sum AUM from all Easy Earn (all chains)
+    // 用於彙總 Easy Earn 各策略+幣種的總計行，key 為 Strategy+Symbol
     const summaryRowsMap = new Map();
+    // 遍歷所有 vault，針對 easy earn vault 進行彙總
     vaults.forEach(v => {
         if (v.vaultCategory && v.vaultCategory.toLowerCase() === 'easy earn') {
+            // 建立唯一 key 以分組（策略+幣種）
             const key = `${v.Strategy}||${v.symbol}`;
+            // 取得主資產 AUM 數值（去除逗號與單位）
             const aum = parseFloat((v.mainAssetAUMReadable || '').replace(/,/g, '').split(' ')[0]) || 0;
             if (!summaryRowsMap.has(key)) {
+                // 首次遇到該組合，初始化彙總物件
                 summaryRowsMap.set(key, {
-                    vaultCategory: 'Easy Earn Total',
+                    vaultCategory: 'Easy Earn Total', // 彙總行標記
                     Strategy: v.Strategy,
-                    chain: '',
+                    chain: '', // 彙總行不指定鏈
                     chainId: '',
                     protocol: '',
                     mainAssetIndex: '',
@@ -227,49 +233,47 @@ function renderVaultsTable(vaults, priceMap) {
                     symbol: v.symbol,
                     decimals: '',
                     isActive: '',
-                    mainAssetAUMReadable: '', // will fill later
-                    chains: v.chain ? [v.chain] : [],
-                    _aum_sum: aum
+                    mainAssetAUMReadable: '', // 稍後填入
+                    chains: v.chain ? [v.chain] : [], // 記錄出現過的鏈
+                    _aum_sum: aum // 彙總 AUM
                 });
             } else {
+                // 已存在該組合，累加 AUM 並合併鏈資訊
                 const prev = summaryRowsMap.get(key);
                 let prevChains = Array.isArray(prev.chains) ? prev.chains : (prev.chains ? [prev.chains] : []);
                 let newChains = v.chain ? [v.chain] : [];
-                prev.chains = Array.from(new Set([...prevChains, ...newChains]));
-                prev._aum_sum += aum;
+                prev.chains = Array.from(new Set([...prevChains, ...newChains])); // 去重合併鏈
+                prev._aum_sum += aum; // 累加 AUM
                 summaryRowsMap.set(key, prev);
             }
         }
     });
-    // 計算 mainAssetAUMReadable 並乘以幣價，並記錄每個 chain 的 aum
+    // 計算每個彙總行的 mainAssetAUMReadable 及主資產數量細節
     summaryRowsMap.forEach((row, key) => {
-        // 幣價 (priceMap) 乘 aum_sum
+        // 取得幣價，若無則預設為 1
         let price = 1;
         if (priceMap && row.symbol && priceMap[row.symbol] != null) {
             price = priceMap[row.symbol];
         }
-        // 找出所有該組合的 easy earn vaults，記錄各鏈aum（只列數字）
+        // 收集所有該組合 easy earn vault 的原始數量（僅用於顯示細節）
         const allAums = vaults.filter(v => v.vaultCategory && v.vaultCategory.toLowerCase() === 'easy earn' && v.Strategy === row.Strategy && v.symbol === row.symbol)
             .map(v => {
                 let aum = parseFloat((v.mainAssetAUMReadable || '').replace(/,/g, '').split(' ')[0]) || 0;
                 return `${aum.toLocaleString(undefined, { maximumFractionDigits: 8 })}`;
             });
-        row.mainAssetQuantityDetail = allAums.join(' + ') + (allAums.length ? ` ${row.symbol}` : '');
+        row.mainAssetQuantityDetail = allAums.join(' + ') + (allAums.length ? ` ${row.symbol}` : ''); // 顯示每條鏈的數量
         const aumValue = row._aum_sum;
         const aumFiat = aumValue * price;
-        row.mainAssetAUMReadable = `${aumValue.toLocaleString(undefined, { maximumFractionDigits: 8 })} ${row.symbol} (combined)`;
+        row.mainAssetAUMReadable = `${aumValue.toLocaleString(undefined, { maximumFractionDigits: 8 })} ${row.symbol} (combined)`; // 彙總數量
         row.mainAssetAUMFiat = price !== 1 ? `${aumFiat.toLocaleString(undefined, { maximumFractionDigits: 2 })} USD` : '';
-        delete row._aum_sum;
+        delete row._aum_sum; // 清除臨時欄位
     });
-    // Remove duplicate Easy Earn Total rows from vaults
-    // let filteredVaults = vaults.filter(v => v.vaultCategory !== 'Easy Earn Total');
-    // let filteredVaults = vaults.filter(v => v.vaultCategory !== 'Easy Earn Total' && !(v.vaultCategory && v.vaultCategory.toLowerCase() === 'easy earn'));
-    // 只保留非 Easy Earn vaults
+    // 過濾掉原始 easy earn 及彙總行，只保留其他 vaults
     let filteredVaults = vaults.filter(v => !(v.vaultCategory && v.vaultCategory.toLowerCase() === 'easy earn total')
         && !(v.vaultCategory && v.vaultCategory.toLowerCase() === 'easy earn'));
-    // Add back the consolidated summary rows
+    // 加回彙總行（Easy Earn Total）
     filteredVaults = filteredVaults.concat(Array.from(summaryRowsMap.values()));
-    // Sort as before
+    // 依 vault 類別排序
     const sortedVaults = [...filteredVaults].sort((a, b) => {
         const ca = (a.vaultCategory || '').toLowerCase();
         const cb = (b.vaultCategory || '').toLowerCase();
@@ -279,8 +283,9 @@ function renderVaultsTable(vaults, priceMap) {
         return (a.symbol || '').localeCompare(b.symbol || '');
     });
     let rows = [];
+    // 產生每一列表格內容
     sortedVaults.forEach((vault, i) => {
-        if (vault.isActive === false) return;
+        if (vault.isActive === false) return; // 跳過非啟用 vault
         let aumValue = '';
         let usdValue = '';
         const isEasyEarn = vault.vaultCategory && vault.vaultCategory.toLowerCase() === 'easy earn';
@@ -289,7 +294,8 @@ function renderVaultsTable(vaults, priceMap) {
         const isPortfolio = vault.vaultCategory && vault.vaultCategory.toLowerCase() === 'portfolio';
         const isManaged = vault.vaultCategory && vault.vaultCategory.toLowerCase() === 'managed vaults';
         let vaultCategoryDisplay = vault.vaultCategory;
-        if (isSummary) vaultCategoryDisplay = 'Easy Earn Total';
+        if (isSummary) vaultCategoryDisplay = 'Easy Earn Total'; // 統一顯示名稱
+        // 計算 AUM 及 USD 顯示值，根據不同 vault 類型處理
         if (vault.mainAssetAUMReadable && vault.mainAssetAUMReadable !== 'No valid fund' && vault.mainAssetAUMReadable !== '' && vault.mainAssetAUMReadable !== undefined) {
             if (isSummary) {
                 aumValue = '';
@@ -301,15 +307,14 @@ function renderVaultsTable(vaults, priceMap) {
                     amt = parseFloat(main);
                 }
                 let usd = price ? (amt * price).toLocaleString(undefined, {maximumFractionDigits: 2}) + ' USD' : '';
-                usdValue = formatAUMUSD(usd);
+                usdValue = formatAUMUSD(usd); // 彙總行只顯示 USD
             } else if (isEasyEarn) {
                 aumValue = formatAUMWithUnit(vault.mainAssetAUMReadable);
                 const symbol = vault.symbol;
                 const price = priceMap[symbol] || 0;
                 const amt = parseAUMReadable(vault.mainAssetAUMReadable);
                 let usd = price ? (amt * price).toLocaleString(undefined, {maximumFractionDigits: 2}) + ' USD' : '';
-                usdValue = formatAUMUSD(usd);
-                // return;
+                usdValue = formatAUMUSD(usd); // Easy Earn 顯示原始數量及 USD
             } else if (isManaged) {
                 aumValue = formatAUMWithUnit(vault.mainAssetAUMReadable);
                 let amt = parseAUMReadable(vault.mainAssetAUMReadable);
@@ -326,6 +331,7 @@ function renderVaultsTable(vaults, priceMap) {
         } else {
             aumValue = vault.mainAssetAUMReadable || 'No valid fund';
         }
+        // 顯示策略額外資訊與鏈資訊
         let strategyExtra = '';
         let chainDisplay = vault.chain || '';
         if (isSummary) {
@@ -337,12 +343,14 @@ function renderVaultsTable(vaults, priceMap) {
                 chainDisplay = chains.join(', ');
             }
         }
+        // 主資產數量顯示細節
         let mainAssetQuantity = '';
         if (isSummary && vault.mainAssetQuantityDetail) {
             mainAssetQuantity = vault.mainAssetQuantityDetail;
         } else {
             mainAssetQuantity = vault.mainAssetAUMReadable || '';
         }
+        // 組裝表格列 HTML
         rows.push(`
             <tr>
                 <td>${vaultCategoryDisplay}</td>
@@ -355,6 +363,7 @@ function renderVaultsTable(vaults, priceMap) {
             </tr>
         `);
     });
+    // 回傳完整 HTML 表格
     return `
         <table id="vaults-table" class="table table-bordered vault-table">
             <thead class="table-light">
@@ -452,6 +461,43 @@ document.getElementById('backBtn').onclick = function() {
   document.getElementById('step1').style.display = '';
   document.getElementById('dateInputBlock').style.display = '';
 };
+
+// ===================== CSV 下載功能 =====================
+// 將 vaults table 匯出為 CSV
+function downloadVaultsTableAsCSV() {
+    const table = document.getElementById('vaults-table');
+    if (!table) return;
+    let csv = [];
+    // 取得表頭
+    let headers = [];
+    table.querySelectorAll('thead th').forEach(th => {
+        headers.push('"' + th.innerText.replace(/"/g, '""') + '"');
+    });
+    csv.push(headers.join(','));
+    // 取得每一列資料
+    table.querySelectorAll('tbody tr').forEach(tr => {
+        let row = [];
+        tr.querySelectorAll('td').forEach(td => {
+            row.push('"' + td.innerText.replace(/"/g, '""') + '"');
+        });
+        csv.push(row.join(','));
+    });
+    // 產生 Blob 並觸發下載
+    const csvContent = csv.join('\n');
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `Teahouse_Vaults_AUM_${selectedDate || ''}.csv`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+}
+// 綁定 CSV 下載按鈕事件
+if (document.getElementById('download-csv')) {
+    document.getElementById('download-csv').onclick = downloadVaultsTableAsCSV;
+}
 </script>
 </body>
 </html>
